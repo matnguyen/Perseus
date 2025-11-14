@@ -5,7 +5,7 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 import torch
 
-MODULE = "taxoncnn.extract"
+MODULE = "taxoncnn.utils.io_utils"
 
 def _row(
     seq="s1",

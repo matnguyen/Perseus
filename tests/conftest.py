@@ -4,7 +4,8 @@ import importlib
 import pytest
 
 # Path to module under test
-MODULE = "taxoncnn.extract"  # if file is at repo root: MODULE = "extract"
+MODULE = "taxoncnn.extract"  
+NCBI_MODULE = "taxoncnn.utils.tax_utils"
 
 # ---- Fake NCBI / ETE3 ----
 class FakeNCBI:
@@ -69,7 +70,7 @@ def patch_ncbi(monkeypatch):
     Patch the module's NCBI and NCBITaxa class so tests don't touch real ETE3 DB.
     Also reset LRU caches between tests.
     """
-    m = importlib.import_module(MODULE)
+    m = importlib.import_module(NCBI_MODULE)
 
     # Replace class and the global instance
     monkeypatch.setattr(m, "NCBITaxa", FakeNCBI, raising=True)

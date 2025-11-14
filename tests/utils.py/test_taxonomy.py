@@ -1,7 +1,7 @@
 import importlib
 import pytest
 
-MODULE = "taxoncnn.extract"
+MODULE = "taxoncnn.utils.tax_utils"
     
 """
 Tests for normalize_taxid

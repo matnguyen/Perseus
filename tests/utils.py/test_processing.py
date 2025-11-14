@@ -3,7 +3,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-MODULE = "taxoncnn.extract"
+MODULE = "taxoncnn.utils.processing"
 
 """
 Tests for parse_kmers and iter_kmer_tokens
