@@ -23,8 +23,8 @@ import gc
 import glob
 import json
 
-from taxoncnn.features.constants import CANONICAL_RANKS
-from taxoncnn.features.tax_utils import (
+from taxoncnn.utils.constants import CANONICAL_RANKS
+from taxoncnn.utils.tax_utils import (
     normalize_taxid,
     fetch_maps
 )

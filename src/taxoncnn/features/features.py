@@ -2,9 +2,9 @@ import numpy as np
 import torch
 import logging
 
-import taxoncnn.features.globals as globals
-from taxoncnn.features.globals import NCBI
-from taxoncnn.features.tax_utils import (
+import taxoncnn.utils.globals as globals
+from taxoncnn.utils.globals import NCBI
+from taxoncnn.utils.tax_utils import (
     canonicalize_rank,
     get_canonical_taxid_for_rank,
     get_taxid_rank_raw

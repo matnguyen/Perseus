@@ -4,8 +4,8 @@ import pandas as pd
 import pytest
 
 MODULE = "taxoncnn.features.features"
-GLOBAL_MODULE = "taxoncnn.features.globals"
-CONSTANTS_MODULE = "taxoncnn.features.constants"
+GLOBAL_MODULE = "taxoncnn.utils.globals"
+CONSTANTS_MODULE = "taxoncnn.utils.constants"
 
 """
 Tests for compute_bin_features

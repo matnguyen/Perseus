@@ -5,9 +5,9 @@ import pytest
 
 # Path to module under test
 MODULE = "taxoncnn.extract"  
-NCBI_MODULE = "taxoncnn.features.tax_utils"
-GLOBALS_MODULE = "taxoncnn.features.globals"
-CONSTANTS_MODULE = "taxoncnn.features.constants"
+NCBI_MODULE = "taxoncnn.utils.tax_utils"
+GLOBALS_MODULE = "taxoncnn.utils.globals"
+CONSTANTS_MODULE = "taxoncnn.utils.constants"
 
 # ---- Fake NCBI / ETE3 ----
 class FakeNCBI:

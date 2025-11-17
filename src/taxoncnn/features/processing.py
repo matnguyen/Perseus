@@ -6,8 +6,8 @@ from alive_progress import alive_bar
 from collections import defaultdict
 
 from taxoncnn.features.features import compute_bin_features
-from taxoncnn.features.constants import CANONICAL_RANKS
-from taxoncnn.features.globals import (
+from taxoncnn.utils.constants import CANONICAL_RANKS
+from taxoncnn.utils.globals import (
     _shared_lineage_map,
     _shared_write_format,
     _shared_shard_size,
@@ -18,12 +18,12 @@ from taxoncnn.features.init import (
     _init_ncbi_private_db,
     effective_nprocs
 )
-from taxoncnn.features.io_utils import (
+from taxoncnn.utils.io_utils import (
     _write_rows_streaming_parquet,
     _write_rows_streaming_shards,
     prefetch
 )
-from taxoncnn.features.tax_utils import (
+from taxoncnn.utils.tax_utils import (
     normalize_taxid,
     get_lineage_path,
     lineage_to_rank_map,
