@@ -6,6 +6,7 @@ import pyarrow.parquet as pq
 import torch
 
 MODULE = "taxoncnn.utils.io_utils"
+GLOBAL_MODULE = "taxoncnn.utils.globals"
 
 def _row(
     seq="s1",
@@ -44,6 +45,8 @@ def _row(
 
 def test_write_rows_streaming_parquet_basic(tmp_outdir):
     m = importlib.import_module(MODULE)
+    globals_mod = importlib.import_module(GLOBAL_MODULE)
+    globals_mod._shared_out_dir = str(tmp_outdir)
 
     rows = [
         _row(seq="s1", bins=[[0.1] * 22]),
@@ -94,13 +97,14 @@ def test_write_rows_streaming_parquet_basic(tmp_outdir):
     assert pa.types.is_floating(value_type)   # float32/float64
 
 
-
 def test_write_rows_streaming_parquet_quantized(tmp_outdir):
     """
     Also check the quantize_u8 path to make sure it doesn't crash
     and writes a valid file.
     """
     m = importlib.import_module(MODULE)
+    globals_mod = importlib.import_module(GLOBAL_MODULE)
+    globals_mod._shared_out_dir = str(tmp_outdir)
 
     rows = [_row(seq="s1", bins=[[0.0, 0.5, 1.0] + [0.2] * 19])]
 
@@ -127,12 +131,14 @@ def test_write_rows_streaming_shards_pad_to_max(tmp_outdir, monkeypatch):
     target_length = 0 → pad to max T in shard; ensure shapes and metadata look right.
     """
     m = importlib.import_module(MODULE)
+    globals_mod = importlib.import_module(GLOBAL_MODULE)
+    globals_mod._shared_out_dir = str(tmp_outdir)
 
     # fake manifest list
     class Manifest(list):
         pass
 
-    m._shared_manifest_paths = Manifest()
+    globals_mod._shared_manifest_paths = Manifest()
 
     # make two rows with different T to exercise padding:
     #   row1: T=2, row2: T=3
@@ -175,8 +181,8 @@ def test_write_rows_streaming_shards_pad_to_max(tmp_outdir, monkeypatch):
     assert len(bundle["true_taxon"]) == 2
 
     # manifest list updated
-    assert len(m._shared_manifest_paths) == 1
-    assert str(path) in m._shared_manifest_paths[0] or str(path) == m._shared_manifest_paths[0]
+    assert len(globals_mod._shared_manifest_paths) == 1
+    assert str(path) in globals_mod._shared_manifest_paths[0] or str(path) == globals_mod._shared_manifest_paths[0]
 
 
 def test_write_rows_streaming_shards_resample(tmp_outdir, monkeypatch):
@@ -184,11 +190,13 @@ def test_write_rows_streaming_shards_resample(tmp_outdir, monkeypatch):
     target_length > 0 → resample all sequences to fixed length.
     """
     m = importlib.import_module(MODULE)
+    globals_mod = importlib.import_module(GLOBAL_MODULE)
+    globals_mod._shared_out_dir = str(tmp_outdir)
 
     class Manifest(list):
         pass
 
-    m._shared_manifest_paths = Manifest()
+    globals_mod._shared_manifest_paths = Manifest()
 
     rows = [
         _row(seq="s1", bins=[[0.1] * 22, [0.2] * 22]),

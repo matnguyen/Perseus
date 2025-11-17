@@ -6,6 +6,8 @@ import pytest
 # Path to module under test
 MODULE = "taxoncnn.extract"  
 NCBI_MODULE = "taxoncnn.utils.tax_utils"
+GLOBALS_MODULE = "taxoncnn.utils.globals"
+CONSTANTS_MODULE = "taxoncnn.utils.constants"
 
 # ---- Fake NCBI / ETE3 ----
 class FakeNCBI:
@@ -71,10 +73,12 @@ def patch_ncbi(monkeypatch):
     Also reset LRU caches between tests.
     """
     m = importlib.import_module(NCBI_MODULE)
+    globals_mod = importlib.import_module(GLOBALS_MODULE)
+    constants_mod = importlib.import_module(CONSTANTS_MODULE)
 
     # Replace class and the global instance
     monkeypatch.setattr(m, "NCBITaxa", FakeNCBI, raising=True)
-    m.NCBI = FakeNCBI()
+    globals_mod.NCBI = FakeNCBI()
 
     # Reset caches that rely on NCBI
     for name in ("cached_get_rank", "get_lineage_path", "get_taxid_to_rank",
@@ -82,18 +86,18 @@ def patch_ncbi(monkeypatch):
         getattr(m, name).cache_clear()
 
     # Provide sane defaults for shared maps used by compute_bin_features
-    m._shared_lineage_map = {
-        60: m.NCBI.get_lineage(60),
-        61: m.NCBI.get_lineage(61),
-        50: m.NCBI.get_lineage(50),
+    globals_mod._shared_lineage_map = {
+        60: globals_mod.NCBI.get_lineage(60),
+        61: globals_mod.NCBI.get_lineage(61),
+        50: globals_mod.NCBI.get_lineage(50),
     }
     # canonical map (rank->taxid) per taxid
     def canon_for(t):
-        lineage = m.NCBI.get_lineage(t)
-        return m.get_canonical_taxid_for_rank(t, m.CANONICAL_RANKS, m.NCBI)
-    m._shared_canonical_map = {t: canon_for(t) for t in (60,61,50,40,30,20,10,2)}
+        lineage = globals_mod.NCBI.get_lineage(t)
+        return m.get_canonical_taxid_for_rank(t, constants_mod.CANONICAL_RANKS, globals_mod.NCBI)
+    globals_mod._shared_canonical_map = {t: canon_for(t) for t in (60,61,50,40,30,20,10,2)}
     # descendants map
-    m._shared_descendant_map = {t: set(m.NCBI.get_descendant_taxa(t)) for t in (60,61,50,40,30,20,10,2)}
+    globals_mod._shared_descendant_map = {t: set(globals_mod.NCBI.get_descendant_taxa(t)) for t in (60,61,50,40,30,20,10,2)}
     yield
 
 @pytest.fixture
