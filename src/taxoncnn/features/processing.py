@@ -5,25 +5,25 @@ import multiprocessing as mp
 from alive_progress import alive_bar
 from collections import defaultdict
 
-from taxoncnn.utils.features import compute_bin_features
-from taxoncnn.utils.constants import CANONICAL_RANKS
-from taxoncnn.utils.globals import (
+from taxoncnn.features.features import compute_bin_features
+from taxoncnn.features.constants import CANONICAL_RANKS
+from taxoncnn.features.globals import (
     _shared_lineage_map,
     _shared_write_format,
     _shared_shard_size,
     _shared_target_length,
     _shared_to_dtype
 )
-from taxoncnn.utils.init import (
+from taxoncnn.features.init import (
     _init_ncbi_private_db,
     effective_nprocs
 )
-from taxoncnn.utils.io_utils import (
+from taxoncnn.features.io_utils import (
     _write_rows_streaming_parquet,
     _write_rows_streaming_shards,
     prefetch
 )
-from taxoncnn.utils.tax_utils import (
+from taxoncnn.features.tax_utils import (
     normalize_taxid,
     get_lineage_path,
     lineage_to_rank_map,

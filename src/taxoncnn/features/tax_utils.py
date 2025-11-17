@@ -3,8 +3,8 @@ import logging
 from functools import lru_cache
 from ete3 import NCBITaxa
 
-import taxoncnn.utils.globals as globals
-from taxoncnn.utils.constants import (
+import taxoncnn.features.globals as globals
+from taxoncnn.features.constants import (
     CANONICAL_RANKS,
     RANK_INDEX
 )

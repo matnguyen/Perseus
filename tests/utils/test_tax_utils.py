@@ -1,9 +1,9 @@
 import importlib
 import pytest
 
-MODULE = "taxoncnn.utils.tax_utils"
-GLOBALS_MODULE = "taxoncnn.utils.globals"
-CONSTANTS_MODULE = "taxoncnn.utils.constants"
+MODULE = "taxoncnn.features.tax_utils"
+GLOBALS_MODULE = "taxoncnn.features.globals"
+CONSTANTS_MODULE = "taxoncnn.features.constants"
     
 """
 Tests for normalize_taxid

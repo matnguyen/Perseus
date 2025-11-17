@@ -7,10 +7,10 @@ import logging
 from threading import Thread
 from queue import Queue
 
-import taxoncnn.utils.globals as globals
-from taxoncnn.utils.constants import CANONICAL_RANKS
-from taxoncnn.utils.init import _next_worker_part_name
-from taxoncnn.utils.features import (
+import taxoncnn.features.globals as globals
+from taxoncnn.features.constants import CANONICAL_RANKS
+from taxoncnn.features.init import _next_worker_part_name
+from taxoncnn.features.features import (
     _torch_dtype,
     _resample_TN_to_T
 )

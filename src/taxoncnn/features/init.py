@@ -3,7 +3,7 @@ import shutil
 import tempfile
 from ete3 import NCBITaxa
 
-from taxoncnn.utils.globals import (
+from taxoncnn.features.globals import (
     _shared_canonical_map,
     _shared_descendant_map,
     _shared_lineage_map,

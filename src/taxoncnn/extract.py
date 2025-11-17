@@ -23,16 +23,16 @@ import gc
 import glob
 import json
 
-from taxoncnn.utils.constants import CANONICAL_RANKS
-from taxoncnn.utils.tax_utils import (
+from taxoncnn.features.constants import CANONICAL_RANKS
+from taxoncnn.features.tax_utils import (
     normalize_taxid,
     fetch_maps
 )
-from taxoncnn.utils.init import (
+from taxoncnn.features.init import (
     init_worker,
     effective_nprocs
 )
-from taxoncnn.utils.processing import (
+from taxoncnn.features.processing import (
     process_chunk_and_write,
     process_chunk_and_write_wrapper,
     build_tax_context
