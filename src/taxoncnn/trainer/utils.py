@@ -9,7 +9,7 @@ from taxoncnn.utils.tax_utils import canonicalize_rank
 
 def normalize_y_per_rank_to7(y_per_rank, rank_names):
     """
-    Map arbitrary per-rank targets onto the canonical 7 ranks (HEADS7) in order
+    Map arbitrary per-rank targets onto the canonical 7 ranks in order
 
     Unknown or missing ranks are set to -1 (ignored by masked loss)
     If both 'domain' and 'superkingdom' exist, 'superkingdom' is preferred

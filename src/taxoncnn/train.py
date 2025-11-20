@@ -31,6 +31,15 @@ from taxoncnn.utils.constants import (
 LOG = logging.getLogger("train_by_rank")
 
 def setup_logging(level: str = "INFO"):
+    """
+    Configure logging for the training script
+
+    Args:
+        level (str, optional): Logging level as a string (e.g., "INFO", "DEBUG"). Defaults to "INFO"
+
+    Returns:
+        None
+    """
     level = level.upper()
     if level not in ("DEBUG","INFO","WARNING","ERROR","CRITICAL"):
         level = "INFO"
@@ -49,6 +58,13 @@ os.environ.setdefault("OPENBLAS_NUM_THREADS", "1")
 
 
 if __name__ == "__main__":
+    """
+    Entry point for training from (train, val) shard manifests with Option-B labels.
+
+    Parses command-line arguments, sets up logging and device, resolves input paths,
+    builds data loaders, instantiates the model, and runs training for the selected
+    target mode and rank filtering options.
+    """
     ap = argparse.ArgumentParser("Train from (train,val) shard manifests with Option-B labels (optimized I/O).")
     ap.add_argument("--train", required=False, help="Train shard directory OR train_manifest.json")
     ap.add_argument("--val",   required=False, help="Val shard directory OR val_manifest.json")
@@ -93,6 +109,15 @@ if __name__ == "__main__":
         LOG.warning("--train/--val not provided; using --input for both.")
 
     def make_model(out_dim):
+        """
+        Instantiate and return the selected model architecture.
+
+        Args:
+            out_dim (int): Output dimension for the model (1 for binary, 7 for per-rank).
+
+        Returns:
+            torch.nn.Module: Instantiated model moved to the selected device.
+        """
         if args.model == "cnn":
             LOG.info("Model: CNN1D_CF (out_dim=%d)", out_dim)
             return CNN1D_CF(in_channels=N_CHANNELS, out_dim=out_dim, extra_dim=1).to(device)
