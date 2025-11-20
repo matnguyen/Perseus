@@ -1,7 +1,5 @@
 import importlib
-import numpy as np
 import pandas as pd
-import pytest
 
 MODULE = "taxoncnn.features.processing"
 
@@ -9,8 +7,6 @@ MODULE = "taxoncnn.features.processing"
 Tests for parse_kmers and iter_kmer_tokens
 """
 def test_parse_kmers_basic():
-    import pandas as pd
-
     m = importlib.import_module(MODULE)
 
     s = "60:5 61:3 10:1 A:10 0:240"
