@@ -378,7 +378,7 @@ if __name__ == '__main__':
     if args.mess_input_file and args.mess_truth_file is None:
         logger.critical("MESS input file provided without MESS truth file; this is required. Exiting.")
         raise SystemExit("MESS input file provided without MESS truth file; required pair missing.")
-    import pdb; pdb.set_trace()
+
     # Run extraction
     read_kraken_file(
         args.file_path, args.output_path,
