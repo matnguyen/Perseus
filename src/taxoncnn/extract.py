@@ -24,7 +24,9 @@ import glob
 import json
 from ete3 import NCBITaxa
 import importlib
+import shutil
 
+import taxoncnn.utils.globals as globals_mod
 from taxoncnn.utils.constants import CANONICAL_RANKS
 from taxoncnn.utils.tax_utils import (
     normalize_taxid,
@@ -420,3 +422,9 @@ if __name__ == '__main__':
             logger.exception(f"Failed to combine parts from {parts_dir}: {e}")
     else:
         logger.info("Shards written; no Parquet combine step.")
+        
+    # Cleanup ETE3 temp dirs
+    for tmpdir in glob.glob("/tmp/taxoncnn_ete3db_*"):
+        if os.path.exists(tmpdir):
+            shutil.rmtree(tmpdir)
+            print(f"[MAIN CLEANUP] Deleted temp dir: {tmpdir}")

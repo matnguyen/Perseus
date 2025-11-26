@@ -23,6 +23,19 @@ def effective_nprocs():
         return max(1, os.cpu_count() or 1)
 
 
+def cleanup_ete3_tmpdir():
+    """
+    Cleanup the temporary ete3 DB directory if it exists
+    """
+    tmpdir = getattr(globals_mod, "_ete3_tmpdir", None)
+    print(f"[CLEANUP] Worker PID {os.getpid()} cleaning up temp dir: {tmpdir}")
+    if tmpdir and os.path.exists(tmpdir):
+        shutil.rmtree(tmpdir)
+        print(f"[CLEANUP] Deleted temp dir: {tmpdir}")
+    else:
+        print(f"[CLEANUP] Temp dir not found or already deleted: {tmpdir}")
+
+
 def _init_ncbi_private_db():
     """
     Create a private copy of the ETE3 SQLite DB for this worker to avoid
@@ -38,7 +51,7 @@ def _init_ncbi_private_db():
         _ = NCBITaxa()
         src_db = _.dbfile
 
-    tmpdir = tempfile.mkdtemp(prefix="ete3db_")
+    tmpdir = tempfile.mkdtemp(prefix="taxoncnn_ete3db_")
     dst_db = os.path.join(tmpdir, "taxa.sqlite")
     shutil.copy2(src_db, dst_db)
     globals_mod.NCBI = NCBITaxa(dbfile=dst_db)
