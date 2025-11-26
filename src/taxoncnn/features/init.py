@@ -3,19 +3,7 @@ import shutil
 import tempfile
 from ete3 import NCBITaxa
 
-from taxoncnn.utils.globals import (
-    _shared_canonical_map,
-    _shared_descendant_map,
-    _shared_lineage_map,
-    _shared_out_dir,
-    _shared_target_length,
-    _shared_tax_context,
-    _shared_to_dtype,
-    _shared_write_format,
-    _shared_shard_size,
-    _shared_manifest_paths,
-    _worker_part_idx
-)
+import taxoncnn.utils.globals as globals_mod
 
 def effective_nprocs():
     """
@@ -63,24 +51,19 @@ def init_worker(tc, lineage_map, descendant_map, canonical_map, out_dir,
     """
     Init for the feature-extraction pool: set globals + private NCBI DB copy
     """
-    global _shared_tax_context, _shared_lineage_map, _shared_descendant_map, _shared_canonical_map
-    global _shared_out_dir, _shared_write_format, _shared_shard_size, _shared_target_length
-    global _shared_to_dtype, _shared_manifest_paths
-    global _shared_mess_true_file, _shared_mess_input_file
+    globals_mod._shared_tax_context    = tc
+    globals_mod._shared_lineage_map    = lineage_map
+    globals_mod._shared_descendant_map = descendant_map
+    globals_mod._shared_canonical_map  = canonical_map
+    globals_mod._shared_out_dir        = out_dir
 
-    _shared_tax_context    = tc
-    _shared_lineage_map    = lineage_map
-    _shared_descendant_map = descendant_map
-    _shared_canonical_map  = canonical_map
-    _shared_out_dir        = out_dir
-
-    _shared_write_format   = write_format
-    _shared_shard_size     = int(shard_size)
-    _shared_target_length  = int(target_length)
-    _shared_to_dtype       = str(to_dtype)
-    _shared_manifest_paths = manifest_paths  # Manager.list shared across workers
-    _shared_mess_true_file = mess_true_file
-    _shared_mess_input_file = mess_input_file
+    globals_mod._shared_write_format   = write_format
+    globals_mod._shared_shard_size     = int(shard_size)
+    globals_mod._shared_target_length  = int(target_length)
+    globals_mod._shared_to_dtype       = str(to_dtype)
+    globals_mod._shared_manifest_paths = manifest_paths  # Manager.list shared across workers
+    globals_mod._shared_mess_true_file = mess_true_file
+    globals_mod._shared_mess_input_file = mess_input_file
 
     _init_ncbi_private_db()
 
@@ -89,6 +72,5 @@ def _next_worker_part_name(ext="parquet"):
     """
     Generate a unique part/shard name for this worker
     """
-    global _worker_part_idx
-    _worker_part_idx += 1
-    return f"part-p{os.getpid()}-{_worker_part_idx:06d}.{ext}"
+    globals_mod._worker_part_idx += 1
+    return f"part-p{os.getpid()}-{globals_mod._worker_part_idx:06d}.{ext}"

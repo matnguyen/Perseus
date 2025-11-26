@@ -7,13 +7,7 @@ from collections import defaultdict
 
 from taxoncnn.features.features import compute_bin_features
 from taxoncnn.utils.constants import CANONICAL_RANKS
-from taxoncnn.utils.globals import (
-    _shared_lineage_map,
-    _shared_write_format,
-    _shared_shard_size,
-    _shared_target_length,
-    _shared_to_dtype
-)
+import taxoncnn.utils.globals as globals
 from taxoncnn.features.init import (
     _init_ncbi_private_db,
     effective_nprocs
@@ -336,7 +330,7 @@ def process_chunk_iter(chunk, bin_size=1000, topk_taxa=None, min_tax_kmers=0, ma
         for pred_tax in candidates:
             pred_tax = normalize_taxid(pred_tax)
 
-            pred_lineage = _shared_lineage_map.get(int(pred_tax), ())
+            pred_lineage = globals._shared_lineage_map.get(int(pred_tax), ())
             if not pred_lineage:
                 continue
 
@@ -404,10 +398,10 @@ def process_chunk_and_write(chunk, max_bins_per_seq=None,
     batch_idx = 0
 
     # Controls copied from shared globals
-    write_fmt  = _shared_write_format
-    shard_size = _shared_shard_size
-    target_len = _shared_target_length
-    to_dtype   = _shared_to_dtype
+    write_fmt  = globals._shared_write_format
+    shard_size = globals._shared_shard_size
+    target_len = globals._shared_target_length
+    to_dtype   = globals._shared_to_dtype
 
     for row in process_chunk_iter(chunk, bin_size=1000, topk_taxa=8, min_tax_kmers=50, max_bins_per_seq=max_bins_per_seq,
                                   mess_true_file=mess_true_file, mess_input_file=mess_input_file):

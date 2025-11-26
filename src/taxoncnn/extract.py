@@ -22,6 +22,8 @@ from pathlib import Path
 import gc
 import glob
 import json
+from ete3 import NCBITaxa
+import importlib
 
 from taxoncnn.utils.constants import CANONICAL_RANKS
 from taxoncnn.utils.tax_utils import (
@@ -371,6 +373,10 @@ if __name__ == '__main__':
                         help='(Not used) Path to MESS input file for Option-B labeling (currently inferred from IDs)')
 
     args = parser.parse_args()
+    
+    if args.threads == 1:
+        globals_mod = importlib.import_module("taxoncnn.utils.globals")
+        globals_mod.NCBI = NCBITaxa() # Pre-initialize for single-threaded mode
     
     if args.mess_truth_file and args.mess_input_file is None:
         logger.critical("MESS truth file provided without MESS input file; this is required. Exiting.")
