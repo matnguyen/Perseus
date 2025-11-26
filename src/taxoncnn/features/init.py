@@ -41,7 +41,7 @@ def _init_ncbi_private_db():
     tmpdir = tempfile.mkdtemp(prefix="ete3db_")
     dst_db = os.path.join(tmpdir, "taxa.sqlite")
     shutil.copy2(src_db, dst_db)
-    NCBI = NCBITaxa(dbfile=dst_db)
+    globals_mod.NCBI = NCBITaxa(dbfile=dst_db)
 
 
 def init_worker(tc, lineage_map, descendant_map, canonical_map, out_dir,

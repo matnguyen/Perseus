@@ -272,7 +272,6 @@ def process_chunk_iter(chunk, bin_size=1000, topk_taxa=None, min_tax_kmers=0, ma
             try:
                 true_tax_raw = mess_map.loc[mess_map['seq_id'] == seq_id, 'tax_id']
             except:
-                import pdb; pdb.set_trace()
                 logger.warning(f"Error retrieving true taxid for sequence {seq_id} from MESS map.")
                 try:
                     true_tax_raw = row.ID.split('|')[1]
