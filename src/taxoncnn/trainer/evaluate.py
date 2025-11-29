@@ -3,6 +3,7 @@ import numpy as np
 import logging
 from alive_progress import alive_bar
 
+from taxoncnn.utils.constants import CANONICAL_RANKS
 from taxoncnn.losses.focal import FocalLoss
 from taxoncnn.losses.compute import compute_loss_from_batch
 from taxoncnn.trainer.metrics import _binary_auroc
@@ -78,3 +79,37 @@ def evaluate(model, loader, device, target_mode="any", rank_idx_for_gate=None):
         auroc = _binary_auroc(y, s)
         metrics.update({"acc": float(acc), "auroc": float(auroc)})
     return metrics
+
+
+def _collect_scores_per_rank(model, loader, device):
+    """Return dict rank_ix -> (y_true, y_score), masking out unknowns (-1)."""
+    R = len(CANONICAL_RANKS)
+    ys = [ [] for _ in range(R) ]
+    ss = [ [] for _ in range(R) ]
+    with torch.no_grad():
+        with alive_bar(len(loader), title="Collecting scores per rank", force_tty=True) as bar:            
+            for batch in loader:
+                    x   = batch["x"].to(device, non_blocking=True).float()
+                    msk = batch["mask"].to(device, non_blocking=True)
+                    extra = torch.log1p(batch["lengths"].to(device).float()).unsqueeze(1)
+                    logits = model(x, mask=msk, extra=extra)              # [B, 7]
+                    probs  = torch.sigmoid(logits)                        # [B, 7]
+        
+                    ypr = batch["y_per_rank"].to(device)                  # [B, 7], {-1,0,1}
+                    for r in range(R):
+                        valid = (ypr[:, r] >= 0)
+                        if valid.sum().item() == 0:
+                            continue
+                        ys[r].append(ypr[valid, r].detach().cpu().to(torch.int32))
+                        ss[r].append(probs[valid, r].detach().cpu())
+                    bar()
+    out = {}
+    for r in range(len(CANONICAL_RANKS)):
+        if ys[r]:
+            y = torch.cat(ys[r]).numpy().astype(np.int32)
+            s = torch.cat(ss[r]).numpy().astype(np.float32)
+        else:
+            y = np.array([], dtype=np.int32)
+            s = np.array([], dtype=np.float32)
+        out[r] = (y, s)
+    return out
