@@ -14,10 +14,7 @@ except RuntimeError: pass
 
 from taxoncnn.trainer.train import train
 from taxoncnn.data.dataset import build_loader
-from taxoncnn.models import (
-    CNN1D_CF,
-    ResTCN_CF
-)
+from taxoncnn.models.initialize import make_model
 from taxoncnn.utils.constants import (
     CANONICAL_RANKS,
     RANK_INDEX,
@@ -72,7 +69,7 @@ if __name__ == "__main__":
     ap.add_argument("--epochs", type=int, default=20)
     ap.add_argument("--batch",  type=int, default=64)
     ap.add_argument("--lr",     type=float, default=1e-3)
-    ap.add_argument("--num_workers", type=int, default=2)  # <=2 to avoid N× memory
+    ap.add_argument("--num-workers", type=int, default=2)  # <=2 to avoid N× memory
     ap.add_argument("--model", choices=["cnn","restcn"], default="cnn")
     ap.add_argument("--save",   default="model_cf.pt")
 
@@ -108,23 +105,6 @@ if __name__ == "__main__":
         train_input = val_input = args.input
         LOG.warning("--train/--val not provided; using --input for both.")
 
-    def make_model(out_dim):
-        """
-        Instantiate and return the selected model architecture.
-
-        Args:
-            out_dim (int): Output dimension for the model (1 for binary, 7 for per-rank).
-
-        Returns:
-            torch.nn.Module: Instantiated model moved to the selected device.
-        """
-        if args.model == "cnn":
-            LOG.info("Model: CNN1D_CF (out_dim=%d)", out_dim)
-            return CNN1D_CF(in_channels=N_CHANNELS, out_dim=out_dim, extra_dim=1).to(device)
-        else:
-            LOG.info("Model: ResTCN_CF (out_dim=%d)", out_dim)
-            return ResTCN_CF(in_channels=N_CHANNELS, out_dim=out_dim, extra_dim=1).to(device)
-
     out_dim = 1 if args.target in ("any","rank") else len(CANONICAL_RANKS)
 
     if args.ranks:
@@ -132,7 +112,7 @@ if __name__ == "__main__":
             LOG.info("=== Predicted Rank: %s ===", rk)
             _, train_loader = build_loader(args, train_input, args.batch, True,  rank_filter=rk)
             _, val_loader   = build_loader(args, val_input,   args.batch, False, rank_filter=rk)
-            model = make_model(out_dim)
+            model = make_model(args, out_dim, device)
             save_path = f"{Path(args.save).with_suffix('')}_{args.target}_{rk}.pt"
             rank_idx_gate = RANK_INDEX[rk] if args.target == "rank" else None
             train(model, train_loader, val_loader, device,
@@ -145,7 +125,7 @@ if __name__ == "__main__":
         LOG.info("Training single model for predicted rank='%s'", rk)
         _, train_loader = build_loader(args, train_input, args.batch, True,  rank_filter=rk)
         _, val_loader   = build_loader(args, val_input,   args.batch, False, rank_filter=rk)
-        model = make_model(out_dim)
+        model = make_model(args, out_dim, device)
         save_path = f"{Path(args.save).with_suffix('')}_{args.target}_{rk}.pt"
         rank_idx_gate = RANK_INDEX[rk] if args.target == "rank" else None
         train(model, train_loader, val_loader, device,
@@ -155,7 +135,7 @@ if __name__ == "__main__":
     LOG.info("Training on ALL samples (no rank filter). target=%s", args.target)
     _, train_loader = build_loader(args, train_input, args.batch, True,  rank_filter=None)
     _, val_loader   = build_loader(args, val_input,   args.batch, False, rank_filter=None)
-    model = make_model(out_dim)
+    model = make_model(args, out_dim, device)
     save_path = f"{Path(args.save).with_suffix('')}_{args.target}.pt"
     train(model, train_loader, val_loader, device,
           target_mode=args.target, rank_idx_for_gate=None,

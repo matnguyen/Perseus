@@ -427,4 +427,4 @@ if __name__ == '__main__':
     for tmpdir in glob.glob("/tmp/taxoncnn_ete3db_*"):
         if os.path.exists(tmpdir):
             shutil.rmtree(tmpdir)
-            print(f"[MAIN CLEANUP] Deleted temp dir: {tmpdir}")
+            logger.debug(f"Deleted temp dir: {tmpdir}")

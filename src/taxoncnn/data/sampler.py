@@ -3,8 +3,6 @@ import math
 import numpy as np
 from collections import defaultdict
 
-from taxoncnn.data.dataset import ShardedCFTorchDataset
-
 class ShardBatchSampler(torch.utils.data.Sampler):
     """
     BatchSampler that groups samples by shard for efficient cache reuse
@@ -18,7 +16,7 @@ class ShardBatchSampler(torch.utils.data.Sampler):
         drop_last (bool, optional): Whether to drop the last incomplete batch in each shard. Defaults to False
         seed (int or None, optional): Random seed for shuffling. Defaults to None
     """
-    def __init__(self, dataset: ShardedCFTorchDataset, batch_size: int,
+    def __init__(self, dataset, batch_size,
                  shuffle=True, drop_last=False, seed=None):
         self.ds = dataset
         self.bs = int(batch_size)
