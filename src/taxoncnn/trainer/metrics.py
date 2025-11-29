@@ -52,3 +52,20 @@ def precision_recall_curve_from_scores(y_true, y_score):
 def binary_aupr(y_true, y_score):
     p, r = precision_recall_curve_from_scores(y_true, y_score)
     return float(np.trapz(p, r))
+
+
+def confusion_matrix_from_threshold(y_true, y_score, thr):
+    y_pred = (y_score > thr).astype(np.int32)
+    tp = int(((y_pred==1) & (y_true==1)).sum())
+    tn = int(((y_pred==0) & (y_true==0)).sum())
+    fp = int(((y_pred==1) & (y_true==0)).sum())
+    fn = int(((y_pred==0) & (y_true==1)).sum())
+    return tp, fp, fn, tn
+
+
+def f1_from_counts(tp, fp, fn):
+    prec = tp / max(tp + fp, 1)
+    rec  = tp / max(tp + fn, 1)
+    if prec + rec == 0:
+        return 0.0, prec, rec
+    return 2*prec*rec/(prec+rec), prec, rec
