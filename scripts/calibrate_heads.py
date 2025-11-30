@@ -23,7 +23,7 @@ if __name__ == "__main__":
                         format='[%(asctime)s] %(levelname)s - %(message)s',
                         datefmt='%Y-%m-%d %H:%M:%S')
     
-    parser = argparse.ArgumentParser(description="Calibrate CNN1D_CF (single head) with isotonic regression")
+    parser = argparse.ArgumentParser(description="Calibrate CNN1D_CF with isotonic regression")
     parser.add_argument("--shards", required=True,
                         help="Dir or manifest.json for calibration shards")
     parser.add_argument("--checkpoint", required=True)
@@ -44,7 +44,7 @@ if __name__ == "__main__":
     logging.info(f"[calibration] Using device: {device}")
     # --- Build calibration dataset + loader ---
     logging.info(f"[calibration] Building calibration loader from shards: {args.shards}")
-    _, calib_loader   = build_loader(args, args.shards, args.batch_size, False, rank_filter=None)
+    _, calib_loader = build_loader(args, args.shards, args.batch_size, False, rank_filter=None)
 
     # --- Load model ---
     logging.info(f"[calibration] Loading model from checkpoint: {args.checkpoint}")

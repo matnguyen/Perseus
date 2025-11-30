@@ -6,7 +6,7 @@ from alive_progress import alive_bar
 from taxoncnn.utils.constants import CANONICAL_RANKS
 from taxoncnn.losses.focal import FocalLoss
 from taxoncnn.losses.compute import compute_loss_from_batch
-from taxoncnn.trainer.metrics import _binary_auroc
+from taxoncnn.trainer.metrics import binary_auroc
 
 logger = logging.getLogger(__name__)
 
@@ -76,7 +76,7 @@ def evaluate(model, loader, device, target_mode="any", rank_idx_for_gate=None):
         s = torch.sigmoid(torch.cat(all_logits)).numpy()
         pred = (s >= 0.5).astype(np.int32)
         acc = (pred == y.astype(np.int32)).mean() if y.size else 0.0
-        auroc = _binary_auroc(y, s)
+        auroc = binary_auroc(y, s)
         metrics.update({"acc": float(acc), "auroc": float(auroc)})
     return metrics
 

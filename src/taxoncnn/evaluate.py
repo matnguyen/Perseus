@@ -8,12 +8,12 @@ import matplotlib.pyplot as plt
 
 from taxoncnn.utils.constants import CANONICAL_RANKS
 from taxoncnn.data.dataset import build_loader
-from taxoncnn.evaluate import _collect_scores_per_rank
+from taxoncnn.trainer.evaluate import _collect_scores_per_rank
 from taxoncnn.models.initialize import (
     make_model,
     load_model
 )
-from taxoncnn.trainer.evaluate import (
+from taxoncnn.trainer.metrics import (
     binary_auroc,
     binary_aupr,
     precision_recall_curve_from_scores,
@@ -28,10 +28,14 @@ if __name__ == '__main__':
     
     parser = argparse.ArgumentParser(description="Evaluate TaxonCNN model")
     parser.add_argument("--checkpoint", required=True, help="Path to the model checkpoint")
-    parser.add_argument("--data-shards", required=True, help="Path to data shards for evaluation")
+    parser.add_argument("--shards", required=True, help="Path to data shards for evaluation")
     parser.add_argument("--model", choices=["cnn","restcn"], default="cnn")
     parser.add_argument("--batch", type=int, default=128)
     parser.add_argument("--output-dir", type=str, required=True, help="Directory to save evaluation results")
+    parser.add_argument("--cache-shards", type=int, default=1, help="Shards kept in RAM per worker")
+    parser.add_argument("--downcast", choices=["none","fp16"], default="fp16", help="Downcast shard tensors in cache")
+    parser.add_argument("--cpu-float32", action="store_true", help="Cast samples to float32 on CPU before batching")
+    parser.add_argument("--num-workers", type=int, default=4, help="Number of DataLoader workers")
     
     args = parser.parse_args()
     
@@ -44,8 +48,8 @@ if __name__ == '__main__':
     model = load_model(model, args.checkpoint, device)  
     
     # Build evaluation dataset + loader
-    logging.info(f"[evaluation] Building evaluation loader from shards: {args.data_shards}")
-    _, eval_loader = build_loader(args, args.data_shards, args.batch, False, rank_filter=None)
+    logging.info(f"[evaluation] Building evaluation loader from shards: {args.shards}")
+    _, eval_loader = build_loader(args, args.shards, args.batch, False, rank_filter=None)
     
     # Collect scores per rank
     logging.info(f"[evaluation] Collecting scores per rank on evaluation set")
@@ -88,8 +92,8 @@ if __name__ == '__main__':
                     best = (f1, thr, prec, rec)
             f1_best, thr_best, prec_best, rec_best = best
 
-            pr_path = str(args.output_dir / f"pr_curve_{rk}.png")
-            cm_path = str(args.output_dir / f"confusion_{rk}.png")
+            pr_path = os.path.join(args.output_dir, f"pr_curve_{rk}.png")
+            cm_path = os.path.join(args.output_dir, f"confusion_{rk}.png")
             # Plot at default 0.5 for display; you can also use thr_best here if desired.
             tp, fp, fn, tn = confusion_matrix_from_threshold(y_true, y_score, 0.5)
             # PR curve plot
