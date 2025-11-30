@@ -94,6 +94,9 @@ def load_calibrators(
     head_names: List[str],
     prefix: str = "calibrator",
 ) -> Dict[str, IsotonicRegression]:
+    """
+    Load each head's calibrator from a pickle.
+    """
     calibrators = {}
     for head in head_names:
         path = in_dir / f"{prefix}_{head}.pkl"

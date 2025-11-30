@@ -5,6 +5,7 @@ import logging
 import csv
 import numpy as np
 import matplotlib.pyplot as plt
+import pickle
 
 from taxoncnn.utils.constants import CANONICAL_RANKS
 from taxoncnn.data.dataset import build_loader
@@ -36,6 +37,7 @@ if __name__ == '__main__':
     parser.add_argument("--downcast", choices=["none","fp16"], default="fp16", help="Downcast shard tensors in cache")
     parser.add_argument("--cpu-float32", action="store_true", help="Cast samples to float32 on CPU before batching")
     parser.add_argument("--num-workers", type=int, default=4, help="Number of DataLoader workers")
+    parser.add_argument("--calibration-dir", type=str, default=None, help="Directory containing calibrators")
     
     args = parser.parse_args()
     
@@ -51,9 +53,19 @@ if __name__ == '__main__':
     logging.info(f"[evaluation] Building evaluation loader from shards: {args.shards}")
     _, eval_loader = build_loader(args, args.shards, args.batch, False, rank_filter=None)
     
+    # Load calibrators if provided
+    calibrators = {}
+    for r,name in enumerate(CANONICAL_RANKS):
+        with open(os.path.join(args.calibration_dir, f"calibrator_{name}.pkl"), "rb") as f:
+            calibrators[r] = pickle.load(f)
+    
     # Collect scores per rank
     logging.info(f"[evaluation] Collecting scores per rank on evaluation set")
-    per_rank = _collect_scores_per_rank(model, eval_loader, device)
+    
+    if args.calibration_dir is not None:
+        per_rank = _collect_scores_per_rank(model, eval_loader, device, calibrators=calibrators, use_calibration=True)
+    else:
+        per_rank = _collect_scores_per_rank(model, eval_loader, device)
     
     # Output results
     rows = []

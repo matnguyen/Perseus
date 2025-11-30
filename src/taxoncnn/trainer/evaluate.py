@@ -81,27 +81,56 @@ def evaluate(model, loader, device, target_mode="any", rank_idx_for_gate=None):
     return metrics
 
 
-def _collect_scores_per_rank(model, loader, device):
+def _collect_scores_per_rank(model, loader, device, calibrators=None, use_calibration=False):
     """Return dict rank_ix -> (y_true, y_score), masking out unknowns (-1)."""
     R = len(CANONICAL_RANKS)
     ys = [ [] for _ in range(R) ]
     ss = [ [] for _ in range(R) ]
+    
+    model.eval()
     with torch.no_grad():
         with alive_bar(len(loader), title="Collecting scores per rank", force_tty=True) as bar:            
             for batch in loader:
                     x   = batch["x"].to(device, non_blocking=True).float()
                     msk = batch["mask"].to(device, non_blocking=True)
                     extra = torch.log1p(batch["lengths"].to(device).float()).unsqueeze(1)
+                    
                     logits = model(x, mask=msk, extra=extra)              # [B, 7]
                     probs  = torch.sigmoid(logits)                        # [B, 7]
         
                     ypr = batch["y_per_rank"].to(device)                  # [B, 7], {-1,0,1}
+                    
+                    probs_cpu = probs.detach().cpu()
+                    ypr_cpu  = ypr.detach().cpu()
+                    
+                    probs_np = probs_cpu.numpy()
+                    
                     for r in range(R):
-                        valid = (ypr[:, r] >= 0)
+                        valid = (ypr[:, r] >= 0).cpu()
                         if valid.sum().item() == 0:
                             continue
-                        ys[r].append(ypr[valid, r].detach().cpu().to(torch.int32))
-                        ss[r].append(probs[valid, r].detach().cpu())
+                        
+                        y_r = ypr_cpu[valid, r].to(torch.int32)            # {0,1}
+                        ys[r].append(y_r)
+                        # ys[r].append(ypr[valid, r].detach().cpu().to(torch.int32))
+                        
+                        # Apply calibration if provided
+                        s_raw = probs_np[valid.numpy(), r]
+                        
+                        if calibrators is not None and use_calibration:
+                            if r in calibrators:
+                                iso = calibrators[r]
+                            else:
+                                rank_name = CANONICAL_RANKS[r]
+                                iso = calibrators.get(rank_name, None)
+                                
+                            if iso is not None:
+                                s_calib = iso.predict(s_raw)    # [n_valid]
+                            else:
+                                s_calib = s_raw
+                            ss[r].append(torch.from_numpy(s_calib))
+                        else:
+                            ss[r].append(torch.from_numpy(s_raw))
                     bar()
     out = {}
     for r in range(len(CANONICAL_RANKS)):
