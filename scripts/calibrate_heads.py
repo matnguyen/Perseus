@@ -54,7 +54,7 @@ if __name__ == "__main__":
 
     logging.info(f"[calibration] Collecting head outputs on calibration set")
     # --- Collect scores + labels ---
-    scores, labels = collect_head_outputs(
+    head_scores_and_labels = collect_head_outputs(
         model=model,
         dataloader=calib_loader,
         device=device
@@ -62,7 +62,7 @@ if __name__ == "__main__":
 
     logging.info(f"[calibration] Fitting isotonic regression per head") 
     # --- Fit calibrator ---
-    iso = fit_isotonic_per_head(scores, labels)
+    iso = fit_isotonic_per_head(head_scores_and_labels)
 
     # --- Save ---
     save_calibrators(iso, Path(args.out))

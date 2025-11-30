@@ -1,0 +1,9 @@
+[2025-11-29 19:39:53] INFO - [calibration] Using device: cuda
+[2025-11-29 19:39:53] INFO - [calibration] Building calibration loader from shards: /home/mnguye99/data/inclusion_exclusion/family_exclusion/1000bp_relabelled_7heads_splits/val_manifest.json
+[2025-11-29 19:42:56] INFO - Dataset: 392 shards, 295113 samples (cache_shards=1, downcast=float16)
+[2025-11-29 19:42:56] INFO - [calibration] Loading model from checkpoint: /home/mnguye99/data/inclusion_exclusion/family_exclusion/7_head_cnn_w_val_per-rank.pt
+[2025-11-29 19:42:56] INFO - Model: CNN1D_CF (out_dim=7)
+[2025-11-29 19:42:57] INFO - Loading model weights from /home/mnguye99/data/inclusion_exclusion/family_exclusion/7_head_cnn_w_val_per-rank.pt
+[2025-11-29 19:42:57] INFO - [calibration] Collecting head outputs on calibration set
+[2025-11-29 19:49:30] INFO - [calibration] Fitting isotonic regression per head
+[2025-11-29 19:49:30] INFO - [calibration] Saved calibrators to /home/mnguye99/data/inclusion_exclusion/family_exclusion/7_head_cnn_w_val_per-rank_calibrated

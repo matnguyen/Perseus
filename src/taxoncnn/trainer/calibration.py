@@ -50,7 +50,7 @@ def collect_head_outputs(model, dataloader, device, head_names=None):
             for j, h in enumerate(head_names):
                 scores[h].append(probs[:, j])
                 labels[h].append(y_np[:, j])
-            bar
+            bar()
 
     out = {}
     for h in head_names:
