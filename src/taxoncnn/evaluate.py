@@ -54,10 +54,11 @@ if __name__ == '__main__':
     _, eval_loader = build_loader(args, args.shards, args.batch, False, rank_filter=None)
     
     # Load calibrators if provided
-    calibrators = {}
-    for r,name in enumerate(CANONICAL_RANKS):
-        with open(os.path.join(args.calibration_dir, f"calibrator_{name}.pkl"), "rb") as f:
-            calibrators[r] = pickle.load(f)
+    if args.calibration_dir is not None:
+        calibrators = {}
+        for r,name in enumerate(CANONICAL_RANKS):
+            with open(os.path.join(args.calibration_dir, f"calibrator_{name}.pkl"), "rb") as f:
+                calibrators[r] = pickle.load(f)
     
     # Collect scores per rank
     logging.info(f"[evaluation] Collecting scores per rank on evaluation set")
