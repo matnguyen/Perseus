@@ -39,3 +39,75 @@ class FocalLoss(nn.Module):
             return loss.sum()
         else:
             return loss
+        
+        
+class LineageAwareFocalLoss(nn.Module):
+    def __init__(
+        self,
+        gamma: float = 2.0,
+        alpha: float | None = 0.25,
+        lambda_hier: float = 0.5,
+        rank_weights=None,
+    ):
+        super().__init__()
+        self.gamma = gamma
+        self.alpha = alpha
+        self.lambda_hier = lambda_hier
+
+        if rank_weights is not None:
+            self.register_buffer(
+                "rank_weights",
+                torch.as_tensor(rank_weights, dtype=torch.float32)
+            )
+        else:
+            self.rank_weights = None
+
+    def forward(self, logits: torch.Tensor, targets: torch.Tensor) -> torch.Tensor:
+        """
+        logits:  [B, R]
+        targets: [B, R] in {0,1,-1}
+        Canonical ranks must be ordered: GENERAL → SPECIFIC
+        """
+        device = logits.device
+        B, R = logits.shape
+        valid_mask = targets >= 0
+        y = targets.clamp(min=0).float()
+
+        # ----- FOCAL LOSS -----
+        bce = F.binary_cross_entropy_with_logits(logits, y, reduction="none")
+        p = torch.sigmoid(logits)
+        p_t = torch.where(y > 0.5, p, 1 - p)
+
+        if self.alpha is not None:
+            alpha_t = torch.where(
+                y > 0.5,
+                torch.tensor(self.alpha, device=device),
+                torch.tensor(1 - self.alpha, device=device),
+            )
+        else:
+            alpha_t = torch.ones_like(p_t)
+
+        focal_weight = alpha_t * (1 - p_t).pow(self.gamma)
+        focal_elementwise = focal_weight * bce
+
+        if self.rank_weights is not None:
+            rw = self.rank_weights.view(1, R).expand_as(focal_elementwise)
+            focal_elementwise = focal_elementwise * rw
+
+        focal_loss = focal_elementwise[valid_mask].mean()
+
+        # ----- HIERARCHY PENALTY -----
+        # Your order: parent (superkingdom) at index 0 → species at index R-1
+        parent_probs = p[:, :-1]   # general
+        child_probs  = p[:, 1:]    # more specific
+
+        # A violation: child > parent
+        violations = torch.relu(child_probs - parent_probs)
+
+        valid_pairs = valid_mask[:, :-1] & valid_mask[:, 1:]
+        if valid_pairs.any():
+            hier_penalty = (violations[valid_pairs] ** 2).mean()
+        else:
+            hier_penalty = torch.tensor(0.0, device=device)
+
+        return focal_loss + self.lambda_hier * hier_penalty
