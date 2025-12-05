@@ -2,7 +2,10 @@ import gc
 import torch
 import logging
 
-from taxoncnn.losses.focal import FocalLoss
+from taxoncnn.losses.focal import (
+    FocalLoss,
+    LineageAwareFocalLoss
+)
 from taxoncnn.losses.compute import compute_loss_from_batch
 from taxoncnn.trainer.evaluate import evaluate
 
@@ -31,7 +34,13 @@ def train(model, train_loader, val_loader, device, target_mode="any", rank_idx_f
         None
     """
     optim = torch.optim.Adam(model.parameters(), lr=lr)
-    crit  = FocalLoss(alpha=1, gamma=2)
+    # crit  = FocalLoss(alpha=1, gamma=2)
+    crit = LineageAwareFocalLoss(
+        gamma=2.0,
+        alpha=0.25,
+        lambda_hier=0.5,
+        rank_weights=None 
+    )
     scaler = None
     # scaler = torch.amp.GradScaler('cuda') if device.type == "cuda" else None
 
