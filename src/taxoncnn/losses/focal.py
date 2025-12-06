@@ -49,6 +49,12 @@ class LineageAwareFocalLoss(nn.Module):
         lambda_hier: float = 0.5,
         rank_weights=None,
     ):
+        """
+        Lineage-aware focal loss for canonical ranks ordered GENERAL → SPECIFIC.
+
+        logits:  [B, R]
+        targets: [B, R] in {0, 1, -1}, where -1 means "unknown / ignore"
+        """
         super().__init__()
         self.gamma = gamma
         self.alpha = alpha
@@ -62,20 +68,37 @@ class LineageAwareFocalLoss(nn.Module):
         else:
             self.rank_weights = None
 
-    def forward(self, logits: torch.Tensor, targets: torch.Tensor) -> torch.Tensor:
+    def forward(
+        self,
+        logits: torch.Tensor,
+        targets: torch.Tensor,
+        mask: torch.Tensor | None = None,
+    ) -> torch.Tensor:
         """
-        logits:  [B, R]
-        targets: [B, R] in {0,1,-1}
-        Canonical ranks must be ordered: GENERAL → SPECIFIC
+        Args:
+            logits: [B, R] raw logits
+            targets: [B, R] in {0,1,-1}; -1 means "ignore"
+            mask: optional mask [B, R] (0/1 or bool) to additionally ignore elements
+
+        Returns:
+            Scalar loss (focal + lambda_hier * hierarchy_penalty), averaged over valid elements.
         """
         device = logits.device
         B, R = logits.shape
-        valid_mask = targets >= 0
+
+        # ----- VALID MASK -----
+        # Start from "targets >= 0" to ignore -1s, then combine with external mask if given.
+        valid_mask = (targets >= 0)
+        if mask is not None:
+            # allow float mask; treat >0 as True
+            valid_mask = valid_mask & (mask > 0)
+
+        # Clamp targets to [0,1] for BCE/focal
         y = targets.clamp(min=0).float()
 
         # ----- FOCAL LOSS -----
         bce = F.binary_cross_entropy_with_logits(logits, y, reduction="none")
-        p = torch.sigmoid(logits)
+        p   = torch.sigmoid(logits)
         p_t = torch.where(y > 0.5, p, 1 - p)
 
         if self.alpha is not None:
@@ -94,20 +117,27 @@ class LineageAwareFocalLoss(nn.Module):
             rw = self.rank_weights.view(1, R).expand_as(focal_elementwise)
             focal_elementwise = focal_elementwise * rw
 
-        focal_loss = focal_elementwise[valid_mask].mean()
+        num_valid = valid_mask.sum()
+        if num_valid > 0:
+            focal_loss = focal_elementwise[valid_mask].mean()
+        else:
+            focal_loss = torch.tensor(0.0, device=device)
 
         # ----- HIERARCHY PENALTY -----
-        # Your order: parent (superkingdom) at index 0 → species at index R-1
+        # Canonical order: parent (general) at index 0 → child (specific) at index R-1
         parent_probs = p[:, :-1]   # general
-        child_probs  = p[:, 1:]    # more specific
+        child_probs  = p[:, 1:]    # specific
 
         # A violation: child > parent
         violations = torch.relu(child_probs - parent_probs)
 
+        # Valid rank-pairs must have both parent & child valid
         valid_pairs = valid_mask[:, :-1] & valid_mask[:, 1:]
+
         if valid_pairs.any():
             hier_penalty = (violations[valid_pairs] ** 2).mean()
         else:
             hier_penalty = torch.tensor(0.0, device=device)
 
         return focal_loss + self.lambda_hier * hier_penalty
+
