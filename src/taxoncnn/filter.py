@@ -86,6 +86,7 @@ if __name__ == "__main__":
     kraken_df = pd.read_csv(args.input_kraken, sep="\t", header=None, 
                             names=["classified", "sequence_id", "kraken_taxonomy", "length", "kmers"])
     kraken_df["kraken_taxid"] = kraken_df["kraken_taxonomy"].str.split().str[-1].str.strip(')')
+    kraken_df.drop(columns=["kmers"], inplace=True)
     logging.info(f"Loaded Kraken output with {len(kraken_df)} entries.")
     
     output_df = pd.DataFrame(rows)
