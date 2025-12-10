@@ -6,8 +6,10 @@ from taxoncnn.losses.focal import (
     FocalLoss,
     LineageAwareFocalLoss
 )
+from taxoncnn.models.initialize import build_optimizer
 from taxoncnn.losses.compute import compute_loss_from_batch
 from taxoncnn.trainer.evaluate import evaluate
+from taxoncnn.trainer.regularization import random_bin_masking_batch
 
 logger = logging.getLogger(__name__)
 
@@ -33,14 +35,14 @@ def train(model, train_loader, val_loader, device, target_mode="any", rank_idx_f
     Returns:
         None
     """
-    optim = torch.optim.Adam(model.parameters(), lr=lr)
-    # crit  = FocalLoss(alpha=1, gamma=2)
-    crit = LineageAwareFocalLoss(
-        gamma=2.0,
-        alpha=0.25,
-        lambda_hier=0.5,
-        rank_weights=None 
-    )
+    optim = build_optimizer(model, lr=lr, weight_decay=1e-4)
+    crit  = FocalLoss(alpha=1, gamma=2)
+    # crit = LineageAwareFocalLoss(
+    #     gamma=2.0,
+    #     alpha=0.25,
+    #     lambda_hier=0.5,
+    #     rank_weights=None 
+    # )
     scaler = None
     # scaler = torch.amp.GradScaler('cuda') if device.type == "cuda" else None
 
@@ -68,6 +70,9 @@ def train(model, train_loader, val_loader, device, target_mode="any", rank_idx_f
             # y = y.to(device, non_blocking=True)
             if msk is not None:   msk = msk.to(device, non_blocking=True)           # bool/int ok
             if extra is not None: extra = extra.to(device, dtype=torch.float32, non_blocking=True)
+
+            # Apply random binary masking as data augmentation
+            x = random_bin_masking_batch(x, msk, p=0.1)
 
             optim.zero_grad(set_to_none=True)
             if scaler:

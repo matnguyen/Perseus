@@ -38,3 +38,31 @@ def load_model(model, checkpoint_path, device):
     model.load_state_dict(state, strict=True)
     model.eval()
     return model.to(device)
+
+def build_optimizer(model, lr=1e-3, weight_decay=1e-4):
+    decay_params = []
+    no_decay_params = []
+
+    for name, param in model.named_parameters():
+        if not param.requires_grad:
+            continue
+
+        # DO NOT apply weight decay to:
+        #   - biases   (name.endswith("bias"))
+        #   - BatchNorm / LayerNorm parameters (1D)
+        if param.ndim == 1 or name.endswith("bias"):
+            no_decay_params.append(param)
+        else:
+            decay_params.append(param)
+
+    optimizer = torch.optim.AdamW(
+        [
+            {"params": decay_params, "weight_decay": weight_decay},
+            {"params": no_decay_params, "weight_decay": 0.0},
+        ],
+        lr=lr,
+        betas=(0.9, 0.999),
+        eps=1e-8,
+    )
+
+    return optimizer
