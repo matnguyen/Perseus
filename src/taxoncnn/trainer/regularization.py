@@ -3,10 +3,13 @@ import torch
 def random_bin_masking_batch(x, mask, p=0.1):
     """
     x:    [B, C, T]
-    mask: [B, T] (1 = valid, 0 = pad)
+    mask: [B, T] or [B, 1, T] (1 = valid, 0 = pad)
     p:    masking probability per valid bin
     """
     B, C, T = x.shape
+    # Squeeze mask if it has a singleton channel dimension
+    if mask.dim() == 3 and mask.shape[1] == 1:
+        mask = mask.squeeze(1)  # [B, T]
     valid = mask.bool()                     # [B, T]
     
     # sample random mask
