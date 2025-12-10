@@ -4,6 +4,7 @@ import logging
 import torch
 import pickle
 import pandas as pd
+from alive_progress import alive_bar
 
 from taxoncnn.utils.constants import CANONICAL_RANKS
 from taxoncnn.data.dataset import build_loader
@@ -34,6 +35,7 @@ if __name__ == "__main__":
     parser.add_argument("--cpu-float32", action="store_true", help="Cast samples to float32 on CPU before batching")
     parser.add_argument("--num-workers", type=int, default=4, help="Number of DataLoader workers")
     parser.add_argument("--calibration-dir", type=str, default=None, help="Directory containing calibrators")
+    parser.add_argument("--model", type=str, default="cnn", help="Model architecture to use")
     
     args = parser.parse_args()
     
@@ -48,7 +50,7 @@ if __name__ == "__main__":
     
     # Build data loader
     logging.info("Building data loader...")
-    _, data_loader = build_loader(args, args.input_shards, args.batch, False, rank_filter=None)
+    _, data_loader = build_loader(args, args.input_shards, args.batch_size, False, rank_filter=None)
     logging.info("Data loader built successfully.")
     
     # Load calibrators if provided
@@ -58,19 +60,42 @@ if __name__ == "__main__":
         for r,name in enumerate(CANONICAL_RANKS):
             with open(os.path.join(args.calibration_dir, f"calibrator_{name}.pkl"), "rb") as f:
                 calibrators[r] = pickle.load(f)
-    
-    if args.calibration_dir is not None:
-        logging.info("Collecting scores with calibration...")
-        per_rank = _collect_scores_per_rank(model, data_loader, device, calibrators=calibrators, use_calibration=True)
-    else:
-        logging.info("Collecting scores without calibration...")
-        per_rank = _collect_scores_per_rank(model, data_loader, device)
-        
+
+    rows = []
+
+    with torch.no_grad():
+        logging.info("Collecting model scores...")
+        with alive_bar(len(data_loader), title="Scoring sequences") as bar:
+            for batch in data_loader:
+                # Forward 
+                x = batch["x"].to(device, non_blocking=True).float()
+                mask = batch["mask"].to(device, non_blocking=True)
+                extra = torch.log1p(batch["lengths"].to(device, non_blocking=True).float()).unsqueeze(1)
+                logits = model(x, mask=mask, extra=extra)
+                probs = torch.sigmoid(logits).detach().cpu().numpy()
+                
+                for i in range(len(probs)):
+                    rows.append({
+                        "sequence_id": batch["seq_id"][i],
+                        "taxon": batch["taxon"][i],
+                        "probs_per_rank": probs[i].tolist()
+                    })
+                
+                bar()
     # Load Kraken output
     kraken_df = pd.read_csv(args.input_kraken, sep="\t", header=None, 
-                            names=["classified", "sequence_id", "taxonomy", "length", "kmers"])
-    kraken_df.set_index("sequence_id", inplace=True)
+                            names=["classified", "sequence_id", "kraken_taxonomy", "length", "kmers"])
+    kraken_df["kraken_taxid"] = kraken_df["kraken_taxonomy"].str.split().str[-1].str.strip(')')
     logging.info(f"Loaded Kraken output with {len(kraken_df)} entries.")
     
-    import pdb
-    pdb.set_trace()
+    output_df = pd.DataFrame(rows)
+    merged_df = pd.merge(kraken_df, output_df, on=["sequence_id"], how="outer")
+    logging.info(f"Merged data has {len(merged_df)} entries.")
+    
+    for idx, rank in enumerate(CANONICAL_RANKS):
+        merged_df[f"prob_{rank}"] = merged_df["probs_per_rank"].apply(lambda x: x[idx] if isinstance(x, list) and len(x) > idx else None)
+    
+    merged_df.drop(columns=["probs_per_rank"], inplace=True)
+    merged_df.to_csv(args.output_path, sep="\t", index=False)
+    logging.info(f"Filtered Kraken output saved to {args.output_path}.")
+    

@@ -165,6 +165,8 @@ class ShardedCFTorchDataset(Dataset):
                 - "y_per_rank": Tensor [7]
                 - "rank_index": int (0..6 or -1)
                 - "length": int
+                - "seq_id": str or None
+                - "taxon": str or None
         """
         si, j = self.index[i]
         m = self._get_shard(si)
@@ -186,10 +188,9 @@ class ShardedCFTorchDataset(Dataset):
             y_per_rank_full = torch.zeros(0, dtype=torch.float32)
 
         # names, if present
-        # rank_names = m.get("rank_names", None)
         rank_names = CANONICAL_RANKS
 
-        # # *** normalize targets to our 7 heads (drop strain; collapse domain/kingdom) ***
+        # *** normalize targets to our 7 heads (drop strain; collapse domain/kingdom) ***
         y_per_rank7 = normalize_y_per_rank_to7(y_per_rank_full, rank_names)
 
         # remap rank_index for gating/eval to our 0..6 space (or -1 if not applicable)
@@ -200,6 +201,16 @@ class ShardedCFTorchDataset(Dataset):
         L = int(m["lengths"][j].item() if "lengths" in m and isinstance(m["lengths"], torch.Tensor)
                 else (m["lengths"][j] if "lengths" in m else x.size(-1)))
 
+        # --- Add seq_id and taxon if present ---
+        seq_id = None
+        if "seq_id" in m:
+            val = m["seq_id"][j]
+            seq_id = val if isinstance(val, str) else str(val)
+        taxon = None
+        if "taxon" in m:
+            val = m["taxon"][j]
+            taxon = val if isinstance(val, str) else str(val)
+
         return {
             "x": x,
             "y_any": float(y_any.item()),
@@ -207,6 +218,8 @@ class ShardedCFTorchDataset(Dataset):
             "y_per_rank": y_per_rank7.float(),   # <-- exactly [7]
             "rank_index": rank_index7,           # <-- in {0..6} or -1
             "length": L,
+            "seq_id": seq_id,
+            "taxon": taxon,
         }
 
 
