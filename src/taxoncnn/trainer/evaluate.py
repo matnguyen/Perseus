@@ -35,40 +35,41 @@ def evaluate(model, loader, device, target_mode="any", rank_idx_for_gate=None):
     all_logits = []
     all_targets = []
 
-    with alive_bar(len(loader), title="Evaluating", force_tty=True) as bar:
-        for batch in loader:
-            x   = batch["x"].to(device, non_blocking=True)
-            msk = batch["mask"].to(device, non_blocking=True)
-            extra = torch.log1p(batch["lengths"].to(device).float()).unsqueeze(1)
-            
-            # force tensors to fp32 on device
-            x = x.to(device, dtype=torch.float32, non_blocking=True)
-            # y = y.to(device, non_blocking=True)
-            if msk is not None:   msk = msk.to(device, non_blocking=True)           # bool/int ok
-            if extra is not None: extra = extra.to(device, dtype=torch.float32, non_blocking=True)
+    with torch.no_grad():
+        with alive_bar(len(loader), title="Evaluating", force_tty=True) as bar:
+            for batch in loader:
+                x   = batch["x"].to(device, non_blocking=True)
+                msk = batch["mask"].to(device, non_blocking=True)
+                extra = torch.log1p(batch["lengths"].to(device).float()).unsqueeze(1)
+                
+                # force tensors to fp32 on device
+                x = x.to(device, dtype=torch.float32, non_blocking=True)
+                # y = y.to(device, non_blocking=True)
+                if msk is not None:   msk = msk.to(device, non_blocking=True)           # bool/int ok
+                if extra is not None: extra = extra.to(device, dtype=torch.float32, non_blocking=True)
 
-            logits = model(x.float(), mask=msk, extra=extra)
-            loss = compute_loss_from_batch(logits, batch, device, crit, target_mode, rank_idx_for_gate)
+                logits = model(x.float(), mask=msk, extra=extra)
+                loss = compute_loss_from_batch(logits, batch, device, crit, target_mode, rank_idx_for_gate)
 
-            bs = x.size(0)
-            total_loss += loss.item() * bs
-            total_n += bs
+                bs = x.size(0)
+                total_loss += loss.item() * bs
+                total_n += bs
 
-            if target_mode in ("any","rank"):
-                if target_mode == "any":
-                    y = batch["y_any"].to(device)
-                else:
-                    y = batch["y_rank"].to(device)
-                    if rank_idx_for_gate is not None:
-                        gate = (batch["rank_index"] == int(rank_idx_for_gate)).to(device)
-                        y = y[gate]; logits = logits[gate]
-                        bs = y.numel()
-                        if bs == 0:
-                            bar()
-                            continue
-                all_targets.append(y.detach().cpu())
-                all_logits.append(logits.detach().cpu())
-            bar()
+                if target_mode in ("any","rank"):
+                    if target_mode == "any":
+                        y = batch["y_any"].to(device)
+                    else:
+                        y = batch["y_rank"].to(device)
+                        if rank_idx_for_gate is not None:
+                            gate = (batch["rank_index"] == int(rank_idx_for_gate)).to(device)
+                            y = y[gate]; logits = logits[gate]
+                            bs = y.numel()
+                            if bs == 0:
+                                bar()
+                                continue
+                    all_targets.append(y.detach().cpu())
+                    all_logits.append(logits.detach().cpu())
+                bar()
 
     metrics = {"loss": total_loss / max(total_n,1)}
     if target_mode in ("any","rank") and all_targets:
