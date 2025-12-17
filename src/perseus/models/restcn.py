@@ -2,8 +2,8 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from taxoncnn.utils.constants import N_CHANNELS
-from taxoncnn.models.layers import (
+from perseus.utils.constants import N_CHANNELS
+from perseus.models.layers import (
     Bottleneck1D,
     masked_avgpool1d
 )

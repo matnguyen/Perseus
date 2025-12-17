@@ -1,7 +1,7 @@
 import importlib
 import torch
 
-MODULE = "taxoncnn.trainer.evaluate"
+MODULE = "perseus.trainer.evaluate"
 
 class DummyModel(torch.nn.Module):
     def forward(self, x, mask=None, extra=None):

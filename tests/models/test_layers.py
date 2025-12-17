@@ -1,7 +1,7 @@
 import importlib
 import torch
 
-MODULE = "taxoncnn.models.layers"
+MODULE = "perseus.models.layers"
 
 def test_masked_avgpool1d_basic():
     m = importlib.import_module(MODULE)

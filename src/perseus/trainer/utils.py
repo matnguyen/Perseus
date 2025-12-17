@@ -4,8 +4,8 @@ import json
 from collections import defaultdict
 from pathlib import Path
 
-from taxoncnn.utils.constants import CANONICAL_RANKS
-from taxoncnn.utils.tax_utils import canonicalize_rank
+from perseus.utils.constants import CANONICAL_RANKS
+from perseus.utils.tax_utils import canonicalize_rank
 
 def normalize_y_per_rank_to7(y_per_rank, rank_names):
     """

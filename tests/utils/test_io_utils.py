@@ -5,8 +5,8 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 import torch
 
-MODULE = "taxoncnn.utils.io_utils"
-GLOBAL_MODULE = "taxoncnn.utils.globals"
+MODULE = "perseus.utils.io_utils"
+GLOBAL_MODULE = "perseus.utils.globals"
 
 def _row(
     seq="s1",

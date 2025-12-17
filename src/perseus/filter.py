@@ -6,10 +6,10 @@ import pickle
 import pandas as pd
 from alive_progress import alive_bar
 
-from taxoncnn.utils.constants import CANONICAL_RANKS
-from taxoncnn.data.dataset import build_loader
-from taxoncnn.trainer.evaluate import _collect_scores_per_rank
-from taxoncnn.models.initialize import (
+from perseus.utils.constants import CANONICAL_RANKS
+from perseus.data.dataset import build_loader
+from perseus.trainer.evaluate import _collect_scores_per_rank
+from perseus.models.initialize import (
     make_model,
     load_model
 )
@@ -19,13 +19,13 @@ if __name__ == "__main__":
                         format='[%(asctime)s] %(levelname)s - %(message)s',
                         datefmt='%Y-%m-%d %H:%M:%S')
     
-    parser = argparse.ArgumentParser(description="Filter Kraken outputs using a trained TaxonCNN model.")
+    parser = argparse.ArgumentParser(description="Filter Kraken outputs using a trained perseus model.")
     parser.add_argument("--input-shards", type=str, required=True,
                         help="Path to the input manifest file containing sequences to filter.")
     parser.add_argument("--input-kraken", type=str, required=True,
                         help="Path to the Kraken output file to be filtered.")
     parser.add_argument("--model-path", type=str, required=True,
-                        help="Path to the trained TaxonCNN model file.")
+                        help="Path to the trained perseus model file.")
     parser.add_argument("--batch-size", type=int, default=128,
                         help="Batch size for processing sequences.")
     parser.add_argument("--output-path", type=str, required=True,

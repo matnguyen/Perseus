@@ -8,7 +8,7 @@ import numpy as np
 import torch
 from sklearn.isotonic import IsotonicRegression
 
-from taxoncnn.utils.constants import CANONICAL_RANKS
+from perseus.utils.constants import CANONICAL_RANKS
 
 
 logger = logging.getLogger(__name__)

@@ -1,7 +1,7 @@
 import importlib
 import torch
 
-MODULE = "taxoncnn.losses.compute"
+MODULE = "perseus.losses.compute"
 
 def dummy_loss_fn(logits, targets, mask=None):
     # Simple mean absolute error for testing, supports optional mask

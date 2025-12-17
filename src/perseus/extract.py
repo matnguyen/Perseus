@@ -26,17 +26,17 @@ from ete3 import NCBITaxa
 import importlib
 import shutil
 
-import taxoncnn.utils.globals as globals_mod
-from taxoncnn.utils.constants import CANONICAL_RANKS
-from taxoncnn.utils.tax_utils import (
+import perseus.utils.globals as globals_mod
+from perseus.utils.constants import CANONICAL_RANKS
+from perseus.utils.tax_utils import (
     normalize_taxid,
     fetch_maps
 )
-from taxoncnn.features.init import (
+from perseus.features.init import (
     init_worker,
     effective_nprocs
 )
-from taxoncnn.features.processing import (
+from perseus.features.processing import (
     process_chunk_and_write,
     process_chunk_and_write_wrapper,
     build_tax_context
@@ -377,7 +377,7 @@ if __name__ == '__main__':
     args = parser.parse_args()
     
     if args.threads == 1:
-        globals_mod = importlib.import_module("taxoncnn.utils.globals")
+        globals_mod = importlib.import_module("perseus.utils.globals")
         globals_mod.NCBI = NCBITaxa() # Pre-initialize for single-threaded mode
     
     if args.mess_truth_file and args.mess_input_file is None:
@@ -424,7 +424,7 @@ if __name__ == '__main__':
         logger.info("Shards written; no Parquet combine step.")
         
     # Cleanup ETE3 temp dirs
-    for tmpdir in glob.glob("/tmp/taxoncnn_ete3db_*"):
+    for tmpdir in glob.glob("/tmp/perseus_ete3db_*"):
         if os.path.exists(tmpdir):
             shutil.rmtree(tmpdir)
             logger.debug(f"Deleted temp dir: {tmpdir}")

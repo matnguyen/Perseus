@@ -2,8 +2,8 @@ import numpy as np
 import torch
 import logging
 
-import taxoncnn.utils.globals as globals
-from taxoncnn.utils.tax_utils import (
+import perseus.utils.globals as globals
+from perseus.utils.tax_utils import (
     canonicalize_rank,
     get_canonical_taxid_for_rank,
     get_taxid_rank_raw

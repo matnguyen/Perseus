@@ -3,7 +3,7 @@ from pathlib import Path
 import shutil
 import pickle
 
-MODULE = "taxoncnn.extract"
+MODULE = "perseus.extract"
 
 """
 Tests for build_tax_context

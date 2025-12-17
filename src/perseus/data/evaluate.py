@@ -6,15 +6,19 @@ import csv
 import numpy as np
 import matplotlib.pyplot as plt
 import pickle
+import pandas as pd 
 
-from taxoncnn.utils.constants import CANONICAL_RANKS
-from taxoncnn.data.dataset import build_loader
-from taxoncnn.trainer.evaluate import _collect_scores_per_rank
-from taxoncnn.models.initialize import (
+from ete3 import NCBITaxa
+from alive_progress import alive_bar
+
+from perseus.utils.constants import CANONICAL_RANKS
+from perseus.data.dataset import build_loader
+from perseus.trainer.evaluate import _collect_scores_per_rank
+from perseus.models.initialize import (
     make_model,
     load_model
 )
-from taxoncnn.trainer.metrics import (
+from perseus.trainer.metrics import (
     binary_auroc,
     binary_aupr,
     precision_recall_curve_from_scores,
@@ -27,8 +31,11 @@ if __name__ == '__main__':
                         format='[%(asctime)s] %(levelname)s - %(message)s',
                         datefmt='%Y-%m-%d %H:%M:%S')
     
-    parser = argparse.ArgumentParser(description="Evaluate TaxonCNN model")
+    parser = argparse.ArgumentParser(description="Evaluate perseus model")
     parser.add_argument("--checkpoint", required=True, help="Path to the model checkpoint")
+    parser.add_argument("--kraken-input", required=True, help="Path to Kraken input file for evaluation")
+    parser.add_argument("--map-file", required=True, help="Path to file mapping anonymized reads to taxid for evaluation")
+    parser.add_argument("--true-file", required=True, help="Path to true labels file for evaluation")
     parser.add_argument("--shards", required=True, help="Path to data shards for evaluation")
     parser.add_argument("--model", choices=["cnn","restcn"], default="cnn")
     parser.add_argument("--batch", type=int, default=128)
@@ -143,3 +150,139 @@ if __name__ == '__main__':
             line = f"{rk}\t{N}\t{auroc:.4f}\t{aupr:.4f}\t{thr:.2f}\t{tp}\t{fp}\t{fn}"
             print(line)
             summaryfile.write(line + "\n")
+            
+    kraken_df = pd.read_csv(args.kraken_input, sep="\t", 
+                            names=["classified", "seq_id", "taxonomy", "length", "kmers"], index_col=None).drop(columns=["kmers"])
+    
+    map_df = pd.read_csv(args.map_file, sep="\t", names=["read", "map"])
+    map_df["accession"] = map_df["map"].str.split('/').str[0].str[:-1]
+    
+    true_df = pd.read_csv(args.true_file, sep="\t")
+    
+    if (true_df["tax_id"] == 0).all():
+        true_df["tax_id"] = true_df["fasta"].str.split('__').str[2]
+    true_df['fasta'] = true_df['fasta'].str.split('__').str[-1]
+    
+    reads_mapped = pd.merge(true_df, map_df, left_on='fasta', right_on='accession', how='inner')
+    kraken_species_true = pd.merge(kraken_df, reads_mapped, left_on='seq', right_on='read', how='inner')
+    
+    kraken_species_true['taxid'] = kraken_species_true['taxonomy'].str.split().str[-1].str.strip(')')
+    kraken_species_true = kraken_species_true[['classified', 'path', 'seq', 'tax_id', 'taxid']]
+    kraken_species_true.columns = ['classified', 'path', 'seq', 'true_taxid', 'taxid']
+    
+    df = kraken_species_true.copy()
+    
+    # --- convenience booleans ---
+    is_classified   = df["classified"].eq("C")
+    is_unclassified = ~is_classified
+    is_included     = df["path"].str.startswith("included")
+    is_excluded     = df["path"].str.startswith("excluded")
+    
+    ncbi = NCBITaxa()
+    _lineage_cache = {}
+    def lineage_set(tid: int):
+        tid = int(tid)
+        if tid not in _lineage_cache:
+            _lineage_cache[tid] = set(ncbi.get_lineage(tid))
+        return _lineage_cache[tid]
+
+    def pred_in_true_lineage(pred, truth) -> bool:
+        try:
+            return int(pred) in lineage_set(int(truth))
+        except Exception:
+            return False
+        
+    df["pred_in_true_lineage"] = False
+    mask = is_classified & df["taxid"].notna()
+    df.loc[mask, "pred_in_true_lineage"] = [
+        pred_in_true_lineage(p, t) for p, t in zip(df.loc[mask, "taxid"], df.loc[mask, "true_taxid"])
+    ]
+    
+    # --- assign TP/FP/FN/TN per your definitions ---
+    # fp: classified & NOT in lineage of true_taxid
+    # fn: unclassified & included
+    # tp: classified & in lineage (includes exact match)
+    # tn: unclassified & excluded
+    conds = [
+        is_classified & df["pred_in_true_lineage"],         # TP
+        is_classified & ~df["pred_in_true_lineage"],        # FP
+        is_unclassified & is_included,                      # FN
+        is_unclassified & is_excluded,                      # TN
+    ]
+    choices = ["TP", "FP", "FN", "TN"]
+    df["label"] = np.select(conds, choices, default="OTHER")
+    
+    TP = (df["label"] == "TP").sum()
+    FP = (df["label"] == "FP").sum()
+    FN = (df["label"] == "FN").sum()
+    TN = (df["label"] == "TN").sum()
+    
+    # "Operational" (among classified) — what % of assignments were wrong?
+    false_assignment_rate = FP / (TP + FP) if (TP + FP) else np.nan
+    precision             = TP / (TP + FP) if (TP + FP) else np.nan
+    recall_TPR            = TP / (TP + FN) if (TP + FN) else np.nan
+    specificity_TNR       = TN / (TN + FP) if (TN + FP) else np.nan
+    FPR_classical         = FP / (FP + TN) if (FP + TN) else np.nan
+    
+    summary_overall = {
+        "TP": TP, "FP": FP, "FN": FN, "TN": TN,
+        "false_assignment_rate": false_assignment_rate,  # FP / (TP+FP) — the plot you likely want
+        "precision": precision,
+        "recall_TPR": recall_TPR,
+        "specificity_TNR": specificity_TNR,
+        "FPR_classical": FPR_classical,                  # requires unclassified rows to populate TN
+    }
+    
+    R = len(CANONICAL_RANKS)
+    
+    all_preds = []
+    seq_ids = []
+    taxons = []
+    per_rank_scores = [[] for _ in range(R)]
+    
+    row = []
+    
+    with torch.no_grad():
+        with alive_bar(len(eval_loader)) as bar:
+            for batch in eval_loader:
+                x     = batch["x"].to(device, non_blocking=True).float()
+                msk   = batch["mask"].to(device, non_blocking=True)
+                extra = torch.log1p(batch["lengths"].to(device).float()).unsqueeze(1)
+                logits = model(x, mask=msk, extra=extra)                       
+                probs  = torch.sigmoid(logits).detach().cpu().numpy()  
+                
+                for i in range(len(probs)):
+                    row.append({
+                    "seq_id": batch["bundle"][i]["seq_id"],
+                    "taxon": batch["bundle"][i]["taxon"],
+                    "preds_per_rank": probs[i].tolist(),  # convert to list for JSON compatibility
+                })
+                    
+                bar()
+                
+    pred_df = pd.DataFrame(row)
+    
+    # Ensure matching dtypes
+    df["taxid"] = df["taxid"].astype(int)
+    pred_df["taxon"] = pred_df["taxon"].astype(int)
+
+    df["seq"] = df["seq"].astype(str)
+    pred_df["seq_id"] = pred_df["seq_id"].astype(str)
+
+    # Merge
+    merged_df = df.merge(
+        pred_df,
+        left_on=["seq", "taxid"],
+        right_on=["seq_id", "taxon"],
+        how="left",  
+        suffixes=("_kraken", "_cnn")
+    )
+    
+    def get_rank_name(taxid):
+        try:
+            rank_dict = ncbi.get_rank([int(taxid)])
+            rank = list(rank_dict.values())[0]
+            return rank if rank in CANONICAL_RANKS else None
+        except Exception:
+            return None
+    merged_df["rank"] = merged_df["taxid"].apply(get_rank_name)

@@ -2,9 +2,9 @@ import importlib
 import numpy as np
 import pytest
 
-MODULE = "taxoncnn.features.features"
-GLOBAL_MODULE = "taxoncnn.utils.globals"
-CONSTANTS_MODULE = "taxoncnn.utils.constants"
+MODULE = "perseus.features.features"
+GLOBAL_MODULE = "perseus.utils.globals"
+CONSTANTS_MODULE = "perseus.utils.constants"
 
 """
 Tests for compute_bin_features

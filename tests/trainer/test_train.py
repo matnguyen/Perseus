@@ -2,7 +2,7 @@ import importlib
 import torch
 import os
 
-MODULE = "taxoncnn.trainer.train"
+MODULE = "perseus.trainer.train"
 
 class DummyModel(torch.nn.Module):
     def __init__(self):

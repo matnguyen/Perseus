@@ -1,9 +1,9 @@
 import torch
 import logging
 
-from taxoncnn.models.cnn import CNN1D_CF
-from taxoncnn.models.restcn import ResTCN_CF
-from taxoncnn.utils.constants import N_CHANNELS
+from perseus.models.cnn import CNN1D_CF
+from perseus.models.restcn import ResTCN_CF
+from perseus.utils.constants import N_CHANNELS
 
 LOG = logging.getLogger(__name__)
 

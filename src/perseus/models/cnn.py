@@ -2,8 +2,8 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from taxoncnn.utils.constants import N_CHANNELS
-from taxoncnn.models.layers import masked_avgpool1d
+from perseus.utils.constants import N_CHANNELS
+from perseus.models.layers import masked_avgpool1d
 
 class ConvBlock1D(nn.Module):
     """

@@ -1,7 +1,7 @@
 import importlib
 import torch
 
-MODULE = "taxoncnn.models.cnn"
+MODULE = "perseus.models.cnn"
 
 def get_seq_len_after_conv(model, x):
     with torch.no_grad():

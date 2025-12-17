@@ -1,7 +1,7 @@
 import importlib
 import pandas as pd
 
-MODULE = "taxoncnn.features.processing"
+MODULE = "perseus.features.processing"
 
 """
 Tests for parse_kmers and iter_kmer_tokens

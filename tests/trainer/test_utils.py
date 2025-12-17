@@ -1,7 +1,7 @@
 import importlib
 import torch
 
-MODULE = "taxoncnn.trainer.utils"
+MODULE = "perseus.trainer.utils"
 
 def test_normalize_y_per_rank_to7_with_names():
     m = importlib.import_module(MODULE)

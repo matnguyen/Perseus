@@ -12,10 +12,10 @@ except RuntimeError: pass
 try: mp.set_sharing_strategy("file_system")
 except RuntimeError: pass
 
-from taxoncnn.trainer.train import train
-from taxoncnn.data.dataset import build_loader
-from taxoncnn.models.initialize import make_model
-from taxoncnn.utils.constants import (
+from perseus.trainer.train import train
+from perseus.data.dataset import build_loader
+from perseus.models.initialize import make_model
+from perseus.utils.constants import (
     CANONICAL_RANKS,
     RANK_INDEX,
     N_CHANNELS,

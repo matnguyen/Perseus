@@ -2,10 +2,10 @@ import importlib
 import pytest
 
 # Path to module under test
-MODULE = "taxoncnn.extract"  
-NCBI_MODULE = "taxoncnn.utils.tax_utils"
-GLOBALS_MODULE = "taxoncnn.utils.globals"
-CONSTANTS_MODULE = "taxoncnn.utils.constants"
+MODULE = "perseus.extract"  
+NCBI_MODULE = "perseus.utils.tax_utils"
+GLOBALS_MODULE = "perseus.utils.globals"
+CONSTANTS_MODULE = "perseus.utils.constants"
 
 # ---- Fake NCBI / ETE3 ----
 class FakeNCBI:

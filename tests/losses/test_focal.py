@@ -1,7 +1,7 @@
 import importlib
 import torch
 
-MODULE = "taxoncnn.losses.focal"
+MODULE = "perseus.losses.focal"
 
 def test_focal_loss_basic_mean():
     m = importlib.import_module(MODULE)

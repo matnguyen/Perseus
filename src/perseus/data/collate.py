@@ -1,6 +1,6 @@
 import torch
 
-from taxoncnn.utils.constants import CROP_MAX_T
+from perseus.utils.constants import CROP_MAX_T
 
 class PadMaskCollateCF:
     """

@@ -1,7 +1,7 @@
 import importlib
 import numpy as np
 
-MODULE = "taxoncnn.trainer.metrics"
+MODULE = "perseus.trainer.metrics"
 
 def test_auroc_perfect():
     m = importlib.import_module(MODULE)

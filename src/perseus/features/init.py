@@ -3,7 +3,7 @@ import shutil
 import tempfile
 from ete3 import NCBITaxa
 
-import taxoncnn.utils.globals as globals_mod
+import perseus.utils.globals as globals_mod
 
 def effective_nprocs():
     """
@@ -51,7 +51,7 @@ def _init_ncbi_private_db():
         _ = NCBITaxa()
         src_db = _.dbfile
 
-    tmpdir = tempfile.mkdtemp(prefix="taxoncnn_ete3db_")
+    tmpdir = tempfile.mkdtemp(prefix="perseus_ete3db_")
     dst_db = os.path.join(tmpdir, "taxa.sqlite")
     shutil.copy2(src_db, dst_db)
     globals_mod.NCBI = NCBITaxa(dbfile=dst_db)
