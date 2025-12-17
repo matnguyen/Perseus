@@ -33,8 +33,11 @@ def compute_loss_from_batch(logits, batch, device, crit, target_mode, rank_idx_f
             return crit(logits.view_as(y), y)
 
     # per-rank
-    y = batch["y_per_rank"].to(device)               # [B,R]
-    if logits.ndim == 1:
-        raise ValueError("per-rank target requires model out_dim == R")
-    mask = torch.ones_like(y, device=device)         # all heads valid
+    y = batch["y_per_rank"].to(device)               # [B,R] in {-1,0,1}
+    if logits.ndim != 2:
+        raise ValueError("per-rank target requires logits shape [B,R]")
+
+    mask = (y >= 0).float()                          # [B,R] 1 where known, 0 where unknown
+    y = y.clamp(min=0).float()                       # map -1 -> 0 (masked out anyway)
+
     return crit(logits, y, mask=mask)

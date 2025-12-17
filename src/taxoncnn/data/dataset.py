@@ -80,7 +80,7 @@ class ShardedCFTorchDataset(Dataset):
             else:
                 # Fallback: read N from each shard (slower; small memory spikes)
                 for si, path in enumerate(self.paths):
-                    m = torch.load(os.path.join(self.base_dir, os.path.basename(path)), map_location="cpu")
+                    m = torch.load(os.path.join(self.base_dir, path), map_location="cpu")
                     n = int(m["x"].shape[0])
                     self.index.extend((si, j) for j in range(n))
         logger.info("Dataset: %d shards, %d samples (cache_shards=%d, downcast=%s)",
@@ -141,7 +141,7 @@ class ShardedCFTorchDataset(Dataset):
             self._cache.move_to_end(si)
             return self._cache[si]
         t0 = time.perf_counter()
-        m = torch.load(os.path.join(self.base_dir, os.path.basename(self.paths[si])), map_location="cpu")
+        m = torch.load(os.path.join(self.base_dir, self.paths[si]), map_location="cpu")
         if self.downcast_cache_dtype:
             m = self._downcast_inplace(m)
         self._cache[si] = m

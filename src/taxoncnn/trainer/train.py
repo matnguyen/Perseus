@@ -35,7 +35,10 @@ def train(model, train_loader, val_loader, device, target_mode="any", rank_idx_f
     Returns:
         None
     """
-    optim = build_optimizer(model, lr=lr, weight_decay=1e-4)
+    optim = build_optimizer(model, lr=lr, weight_decay=5e-4)
+    scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
+        optim, mode="min", factor=0.5, patience=1, min_lr=1e-6, verbose=True
+    )
     crit  = FocalLoss(alpha=1, gamma=2)
     # crit = LineageAwareFocalLoss(
     #     gamma=2.0,
@@ -75,25 +78,41 @@ def train(model, train_loader, val_loader, device, target_mode="any", rank_idx_f
             x = random_bin_masking_batch(x, msk, p=0.1)
 
             optim.zero_grad(set_to_none=True)
+            # compute batch weight for correct averaging
+            if target_mode == "per-rank":
+                ypr = batch["y_per_rank"].to(device)
+                w = int((ypr >= 0).sum().item())  # #valid labels across [B,R]
+                if w == 0:
+                    continue
+            else:
+                w = x.size(0)  # original behavior for any/rank
+
+            optim.zero_grad(set_to_none=True)
+
             if scaler:
                 with torch.amp.autocast('cuda', dtype=torch.float16):
                     logits = model(x, mask=msk, extra=extra)
                     loss = compute_loss_from_batch(logits, batch, device, crit, target_mode, rank_idx_for_gate)
                 scaler.scale(loss).backward()
+                scaler.unscale_(optim)
+                torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
                 scaler.step(optim); scaler.update()
             else:
                 logits = model(x, mask=msk, extra=extra)
                 loss = compute_loss_from_batch(logits, batch, device, crit, target_mode, rank_idx_for_gate)
-                loss.backward(); optim.step()
+                loss.backward()
+                torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
+                optim.step()
 
-            bs = x.size(0)
-            total_loss += loss.item() * bs
-            total_n += bs
+            total_loss += loss.item() * w
+            total_n += w
+
 
         logger.info(f"Epoch {ep:02d} training complete, validating ...")
         train_loss = total_loss / max(total_n,1)
 
         val_metrics = evaluate(model, val_loader, device, target_mode, rank_idx_for_gate)
+        scheduler.step(val_metrics['loss'])  # adjust LR on plateau
         logger.info(f"Epoch {ep:02d} | train_loss={train_loss:.4f} | "
                  f"val_loss={val_metrics['loss']:.4f}" +
                  (f" | val_acc={val_metrics.get('acc',float('nan')):.4f} | val_auroc={val_metrics.get('auroc',float('nan')):.4f}"
