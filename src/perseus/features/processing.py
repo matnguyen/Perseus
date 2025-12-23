@@ -23,6 +23,10 @@ from perseus.utils.tax_utils import (
     lineage_to_rank_map,
     predicted_rank
 )
+from perseus.utils.targets import (
+    compute_cutoff_and_exclusion,
+    build_targets_from_cutoff
+)
 
 logger = logging.getLogger(__name__)
 
