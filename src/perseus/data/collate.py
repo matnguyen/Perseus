@@ -46,24 +46,69 @@ class PadMaskCollateCF:
                 - "y_per_rank": Tensor [B, ...]
                 - "rank_index": IntTensor [B]
         """
+        # --- drop any zero-length samples ---
+        keep = []
+        dropped = []
+        for b in batch:
+            x = b["x"]
+            if x is None or x.numel() == 0 or x.size(-1) == 0:
+                dropped.append((b.get("seq_id", None), b.get("taxon", None)))
+            else:
+                keep.append(b)
+
+        if len(keep) == 0:
+            # Fail loudly with info instead of making T_max=0
+            raise RuntimeError(f"All samples in batch have T=0. Dropped={dropped[:5]} (showing up to 5)")
+
+        if dropped:
+            # Optional: only print occasionally if too spammy
+            print(f"[PadMaskCollateCF] dropped {len(dropped)} zero-length samples, e.g. {dropped[:3]}")
+
+        batch = keep
+
         xs = [b["x"] for b in batch]
         proc, lens = [], []
+
         for x in xs:
             T = x.size(-1)
-            if self.max_len and T > self.max_len:
-                st = torch.randint(0, T - self.max_len + 1, (1,)).item()
+
+            # deterministic or random crop for long sequences
+            if self.max_len is not None and T > self.max_len:
+                if self.train:
+                    st = torch.randint(0, T - self.max_len + 1, (1,)).item()
+                else:
+                    st = 0
                 x = x[..., st:st + self.max_len]
                 T = x.size(-1)
-            proc.append(x); lens.append(T)
-        T_max = max(lens); B, C = len(proc), proc[0].size(0)
-        X  = torch.zeros(B, C, T_max, dtype=proc[0].dtype)
-        M  = torch.zeros(B, 1, T_max, dtype=torch.bool)
+                
+            if T == 0:
+                raise RuntimeError(
+                    f"Unexpected T=0 after cropping. "
+                    f"max_len={self.max_len}, train={self.train}, "
+                    f"orig_T={x_orig_T if 'x_orig_T' in locals() else '??'}, "
+                    f"seq_id={b.get('seq_id', None)}, taxon={b.get('taxon', None)}"
+                )
+
+            # extra guard
+            if T == 0:
+                raise RuntimeError("Unexpected T=0 after cropping. Check max_len and input tensors.")
+
+            proc.append(x)
+            lens.append(T)
+
+        T_max = self.max_len if self.max_len is not None else max(lens)
+        if T_max is None or T_max <= 0:
+            raise RuntimeError(f"Invalid T_max={T_max}. lens={lens[:10]}")
+
+        B, C = len(proc), proc[0].size(0)
+        X = torch.zeros(B, C, T_max, dtype=proc[0].dtype)
+        M = torch.zeros(B, 1, T_max, dtype=torch.bool)
+
         for i, x in enumerate(proc):
-            Ti = x.size(-1)
-            X[i, :, :Ti] = x
+            Ti = min(x.size(-1), T_max)
+            X[i, :, :Ti] = x[..., :Ti]
             M[i, 0, :Ti] = True
 
-        # labels
         y_any  = torch.tensor([b["y_any"] for b in batch], dtype=torch.float32)
         y_rank = torch.tensor([b["y_rank"] for b in batch], dtype=torch.float32)
         y_pr   = torch.stack([b["y_per_rank"] for b in batch], dim=0)
@@ -73,13 +118,13 @@ class PadMaskCollateCF:
         Ls     = torch.tensor(lens, dtype=torch.int32)
 
         return {
-            "x": X, 
-            "mask": M, 
-            "lengths": Ls, 
-            "y_any": y_any, 
+            "x": X,
+            "mask": M,
+            "lengths": Ls,
+            "y_any": y_any,
             "y_rank": y_rank,
-            "y_per_rank": y_pr, 
+            "y_per_rank": y_pr,
             "rank_index": rix,
             "seq_id": seq_id,
-            "taxon": taxon
+            "taxon": taxon,
         }

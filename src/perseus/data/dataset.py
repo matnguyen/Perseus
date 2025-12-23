@@ -80,8 +80,8 @@ class ShardedCFTorchDataset(Dataset):
             else:
                 # Fallback: read N from each shard (slower; small memory spikes)
                 for si, path in enumerate(self.paths):
-                    m = torch.load(os.path.join(self.base_dir, os.path.basename(path)), map_location="cpu")
-                    n = int(m["x"].shape[0])
+                    m = torch.load(os.path.join(self.base_dir, path), map_location="cpu")
+                    n = int(m["x"].shape[0]) 
                     self.index.extend((si, j) for j in range(n))
         logger.info("Dataset: %d shards, %d samples (cache_shards=%d, downcast=%s)",
                  len(self.paths), len(self.index), self._cache_cap, self.downcast_cache_dtype or "none")
@@ -141,7 +141,7 @@ class ShardedCFTorchDataset(Dataset):
             self._cache.move_to_end(si)
             return self._cache[si]
         t0 = time.perf_counter()
-        m = torch.load(os.path.join(self.base_dir, os.path.basename(self.paths[si])), map_location="cpu")
+        m = torch.load(os.path.join(self.base_dir, self.paths[si]), map_location="cpu")
         if self.downcast_cache_dtype:
             m = self._downcast_inplace(m)
         self._cache[si] = m
@@ -172,6 +172,26 @@ class ShardedCFTorchDataset(Dataset):
         m = self._get_shard(si)
 
         x = (m["x"][j] if "x" in m else m["x_list"][j])  # [C,T]
+
+        # --- DEBUG GUARD ---
+        if x.numel() == 0 or x.size(-1) == 0:
+            seq_id = None
+            if "seq_id" in m:
+                val = m["seq_id"][j]
+                seq_id = val if isinstance(val, str) else str(val)
+            taxon = None
+            if "taxon" in m:
+                val = m["taxon"][j]
+                taxon = val if isinstance(val, str) else str(val)
+
+            raise RuntimeError(
+                f"T=0 feature tensor in shard: shard_idx={si}, local_idx={j}, "
+                f"path={self.paths[si]}, seq_id={seq_id}, taxon={taxon}"
+            )
+            
+        if x.numel() == 0 or x.size(-1) == 0:
+            return None
+        
         if self.to_float32 and x.dtype != torch.float32:
             x = x.float()
 
@@ -267,9 +287,11 @@ def build_loader(args, input_path, batch_size, train_flag, rank_filter=None):
         tuple: (ShardedCFTorchDataset, DataLoader)
     """
     downcast = None if args.downcast == "none" else "float16"
+
     if rank_filter is None:
         ds = ShardedCFTorchDataset(
-            input_path, subset_index=None,
+            input_path,
+            subset_index=None,
             cache_shards=args.cache_shards,
             to_float32=args.cpu_float32,
             downcast_cache_dtype=downcast
@@ -279,11 +301,22 @@ def build_loader(args, input_path, batch_size, train_flag, rank_filter=None):
         if len(idx) == 0:
             raise SystemExit(f"No samples for predicted rank '{rank_filter}' in {input_path}.")
         ds = ShardedCFTorchDataset(
-            input_path, subset_index=idx,
+            input_path,
+            subset_index=idx,
             cache_shards=args.cache_shards,
             to_float32=args.cpu_float32,
             downcast_cache_dtype=downcast
         )
-    ld = make_loader(ds, batch_size=batch_size, shuffle=True, train=train_flag,
-                        num_workers=args.num_workers, crop_max=(args.crop_max if train_flag else None))
+
+    # IMPORTANT: keep crop_max fixed for BOTH train and val for deterministic shapes
+    crop_max = args.crop_max if getattr(args, "crop_max", None) is not None else CROP_MAX_T
+
+    ld = make_loader(
+        ds,
+        batch_size=batch_size,
+        shuffle=True,                 # make_loader will disable shuffle if train_flag=False
+        train=train_flag,
+        num_workers=args.num_workers,
+        crop_max=crop_max,
+    )
     return ds, ld

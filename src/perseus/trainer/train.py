@@ -13,7 +13,7 @@ from perseus.trainer.regularization import random_bin_masking_batch
 
 logger = logging.getLogger(__name__)
 
-def train(model, train_loader, val_loader, device, target_mode="any", rank_idx_for_gate=None,
+def train(model, train_loader, val_loader, device, target_mode="per-rank", rank_idx_for_gate=None,
           epochs=10, lr=1e-3, save_path="model_cf.pt"):
     """
     Train a model using the provided training and validation DataLoaders
@@ -70,6 +70,10 @@ def train(model, train_loader, val_loader, device, target_mode="any", rank_idx_f
             # y = y.to(device, non_blocking=True)
             if msk is not None:   msk = msk.to(device, non_blocking=True)           # bool/int ok
             if extra is not None: extra = extra.to(device, dtype=torch.float32, non_blocking=True)
+            
+            w = int((batch["y_per_rank"] >= 0).sum().item())
+            if w == 0: 
+                continue
 
             # Apply random binary masking as data augmentation
             x = random_bin_masking_batch(x, msk, p=0.1)
@@ -80,15 +84,18 @@ def train(model, train_loader, val_loader, device, target_mode="any", rank_idx_f
                     logits = model(x, mask=msk, extra=extra)
                     loss = compute_loss_from_batch(logits, batch, device, crit, target_mode, rank_idx_for_gate)
                 scaler.scale(loss).backward()
-                scaler.step(optim); scaler.update()
+                torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
+                scaler.step(optim)
+                scaler.update()
             else:
                 logits = model(x, mask=msk, extra=extra)
                 loss = compute_loss_from_batch(logits, batch, device, crit, target_mode, rank_idx_for_gate)
-                loss.backward(); optim.step()
+                loss.backward()
+                torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
+                optim.step()
 
-            bs = x.size(0)
-            total_loss += loss.item() * bs
-            total_n += bs
+            total_loss += loss.item() * w
+            total_n += w
 
         logger.info(f"Epoch {ep:02d} training complete, validating ...")
         train_loss = total_loss / max(total_n,1)
@@ -99,7 +106,7 @@ def train(model, train_loader, val_loader, device, target_mode="any", rank_idx_f
                  (f" | val_acc={val_metrics.get('acc',float('nan')):.4f} | val_auroc={val_metrics.get('auroc',float('nan')):.4f}"
                   if 'acc' in val_metrics else ""))
 
-        score = (val_metrics.get("auroc", None))
+        score = -(val_metrics.get("loss", None))
         if score is None:
             score = -val_metrics["loss"]
         if score > best_metric:

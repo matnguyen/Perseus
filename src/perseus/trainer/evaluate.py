@@ -5,13 +5,14 @@ from alive_progress import alive_bar
 
 from perseus.utils.constants import CANONICAL_RANKS
 from perseus.losses.focal import FocalLoss
+from perseus.losses.bce import MaskedBCEWithLogitsLoss
 from perseus.losses.compute import compute_loss_from_batch
 from perseus.trainer.metrics import binary_auroc
 
 logger = logging.getLogger(__name__)
 
 @torch.no_grad()
-def evaluate(model, loader, device, target_mode="any", rank_idx_for_gate=None):
+def evaluate(model, loader, device, target_mode="per-rank", rank_idx_for_gate=None):
     """
     Evaluate a model on a validation or test DataLoader
 
@@ -29,6 +30,7 @@ def evaluate(model, loader, device, target_mode="any", rank_idx_for_gate=None):
     """
     model.eval()
     crit = FocalLoss(alpha=1, gamma=2)
+    # crit = MaskedBCEWithLogitsLoss(reduction="mean")
 
     total_loss = 0.0
     total_n = 0
@@ -51,9 +53,9 @@ def evaluate(model, loader, device, target_mode="any", rank_idx_for_gate=None):
                 logits = model(x.float(), mask=msk, extra=extra)
                 loss = compute_loss_from_batch(logits, batch, device, crit, target_mode, rank_idx_for_gate)
 
-                bs = x.size(0)
-                total_loss += loss.item() * bs
-                total_n += bs
+                w = int((batch["y_per_rank"] >= 0).sum().item())
+                total_loss += loss.item() * w
+                total_n += w
 
                 if target_mode in ("any","rank"):
                     if target_mode == "any":

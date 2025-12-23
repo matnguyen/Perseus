@@ -402,7 +402,7 @@ def process_chunk_and_write(chunk, max_bins_per_seq=None,
     target_len = globals._shared_target_length
     to_dtype   = globals._shared_to_dtype
 
-    for row in process_chunk_iter(chunk, bin_size=1000, topk_taxa=8, min_tax_kmers=50, max_bins_per_seq=max_bins_per_seq,
+    for row in process_chunk_iter(chunk, bin_size=1000, topk_taxa=8, min_tax_kmers=0, max_bins_per_seq=max_bins_per_seq,
                                   mess_true_file=mess_true_file, mess_input_file=mess_input_file):
         for_rows.append(row)
         need_flush = False

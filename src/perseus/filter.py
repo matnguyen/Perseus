@@ -65,23 +65,23 @@ if __name__ == "__main__":
 
     with torch.no_grad():
         logging.info("Collecting model scores...")
-        with alive_bar(len(data_loader), title="Scoring sequences") as bar:
-            for batch in data_loader:
-                # Forward 
-                x = batch["x"].to(device, non_blocking=True).float()
-                mask = batch["mask"].to(device, non_blocking=True)
-                extra = torch.log1p(batch["lengths"].to(device, non_blocking=True).float()).unsqueeze(1)
-                logits = model(x, mask=mask, extra=extra)
-                probs = torch.sigmoid(logits).detach().cpu().numpy()
-                
-                for i in range(len(probs)):
-                    rows.append({
-                        "sequence_id": batch["seq_id"][i],
-                        "taxon": batch["taxon"][i],
-                        "probs_per_rank": probs[i].tolist()
-                    })
-                
-                bar()
+        # with alive_bar(len(data_loader), title="Scoring sequences") as bar:
+        for batch in data_loader:
+            # Forward 
+            x = batch["x"].to(device, non_blocking=True).float()
+            mask = batch["mask"].to(device, non_blocking=True)
+            extra = torch.log1p(batch["lengths"].to(device, non_blocking=True).float()).unsqueeze(1)
+            logits = model(x, mask=mask, extra=extra)
+            probs = torch.sigmoid(logits).detach().cpu().numpy()
+            
+            for i in range(len(probs)):
+                rows.append({
+                    "sequence_id": batch["seq_id"][i],
+                    "taxon": batch["taxon"][i],
+                    "probs_per_rank": probs[i].tolist()
+                })
+            
+                # bar()
     # Load Kraken output
     kraken_df = pd.read_csv(args.input_kraken, sep="\t", header=None, 
                             names=["classified", "sequence_id", "kraken_taxonomy", "length", "kmers"])
