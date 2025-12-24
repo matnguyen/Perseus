@@ -27,7 +27,7 @@ import importlib
 import shutil
 
 import perseus.utils.globals as globals_mod
-from perseus.utils.constants import CANONICAL_RANKS
+from perseus.utils.constants import CANONICAL_RANKS, N_CHANNELS
 from perseus.utils.tax_utils import (
     normalize_taxid,
     fetch_maps
@@ -54,7 +54,7 @@ logger = logging.getLogger(__name__)
 
 def read_kraken_file(file_path, output_path, chunksize=5000, threads=0, max_bins_per_seq=None,
                      write_format="parquet", shard_size=4096, target_length=1024, to_dtype="float32",
-                     mess_truth_file=None, mess_input_file=None):
+                     mess_truth_file=None, mess_input_file=None, topk_taxa=8, min_tax_kmers=10, neg_extra=4):
     """
     Stream Kraken output, produce per-(seq, taxon) 28-channel bin features,
     and write either nested Parquet parts or channel-first .pt shards
@@ -187,7 +187,7 @@ def read_kraken_file(file_path, output_path, chunksize=5000, threads=0, max_bins
             ) as pool:
                 results = pool.imap_unordered(
                     process_chunk_and_write_wrapper,
-                    ((chunk, max_bins_per_seq, mess_truth_file, mess_input_file) for chunk in reader),
+                    ((chunk, max_bins_per_seq, mess_truth_file, mess_input_file, topk_taxa, min_tax_kmers, neg_extra) for chunk in reader),
                     chunksize=1
                 )
                 with alive_bar(title="Processing chunks", unknown="dots_waves") as bar:
@@ -203,7 +203,8 @@ def read_kraken_file(file_path, output_path, chunksize=5000, threads=0, max_bins
                         write_format, shard_size, target_length, to_dtype, manifest_paths)
             for chunk in reader:
                 meta = process_chunk_and_write(chunk, max_bins_per_seq=max_bins_per_seq,
-                                               mess_true_file=mess_truth_file, mess_input_file=mess_input_file)
+                                               mess_true_file=mess_truth_file, mess_input_file=mess_input_file, 
+                                               topk_taxa=topk_taxa, min_tax_kmers=min_tax_kmers, neg_extra=neg_extra)
                 if meta:
                     wrote_rows  += int(meta.get('rows', 0))
                     wrote_files += 1
@@ -218,7 +219,7 @@ def read_kraken_file(file_path, output_path, chunksize=5000, threads=0, max_bins
             ) as pool:
                 results = pool.imap_unordered(
                     process_chunk_and_write_wrapper,
-                    ((chunk, max_bins_per_seq, mess_truth_file, mess_input_file) for chunk in reader),
+                    ((chunk, max_bins_per_seq, mess_truth_file, mess_input_file, topk_taxa, min_tax_kmers, neg_extra) for chunk in reader),
                     chunksize=1
                 )
                 with alive_bar(title="Processing chunks", unknown="dots_waves") as bar:
@@ -236,10 +237,13 @@ def read_kraken_file(file_path, output_path, chunksize=5000, threads=0, max_bins
         mani = {
             "source": str(file_path),
             "outputs": list(manifest_paths) if manifest_paths is not None else [],
-            "channels": 28,
+            "channels": N_CHANNELS,
             "target_length": int(target_length),
             "dtype": str(to_dtype),
             "shard_size": int(shard_size),
+            "topk_taxa": int(topk_taxa),
+            "min_tax_kmers": int(min_tax_kmers),
+            "neg_extra": int(neg_extra),
             "counts": {"approx_rows": int(wrote_rows), "files": int(wrote_files)},
             "labels": {
                 "y_any": "pred_tax ∈ true_lineage",
@@ -373,6 +377,12 @@ if __name__ == '__main__':
                         help='(Not used) Path to MESS truth file for Option-B labeling (currently inferred from IDs)')
     parser.add_argument('--mess-input-file', type=str, default=None,
                         help='(Not used) Path to MESS input file for Option-B labeling (currently inferred from IDs)')
+    parser.add_argument('--topk-taxa', type=int, default=8,
+                        help='Number of top taxa to consider per sequence for Option-B labeling')
+    parser.add_argument('--min-tax-kmers', type=int, default=10,
+                        help='Minimum k-mers assigned to a taxon for it to be considered in Option-B labeling')
+    parser.add_argument('--neg-extra', type=int, default=4,
+                        help='Number of extra negative taxa to sample per sequence for Option-B labeling')
 
     args = parser.parse_args()
     
@@ -394,7 +404,10 @@ if __name__ == '__main__':
         write_format=args.format, shard_size=args.shard_size,
         target_length=args.target_length, to_dtype=args.to_dtype,
         mess_truth_file=args.mess_truth_file,
-        mess_input_file=args.mess_input_file
+        mess_input_file=args.mess_input_file,
+        topk_taxa=args.topk_taxa,
+        min_tax_kmers=args.min_tax_kmers,
+        neg_extra=args.neg_extra,
     )
 
     # Parquet-only combining

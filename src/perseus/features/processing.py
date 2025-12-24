@@ -215,94 +215,28 @@ def build_tax_context(file_path, rows_per_chunk=1000, prefetch_buf=64, dispatch_
     return tax_context
 
 
-def process_chunk_iter(chunk, bin_size=1000, topk_taxa=None, min_tax_kmers=0, max_bins_per_seq=None,
-                       mess_true_file=None, mess_input_file=None):
-    """
-    Process a chunk of classified sequences into per-(seq_id, taxon) rows with binned features and labels
-
-    Args:
-        chunk (pd.DataFrame): DataFrame with at least columns 'ID', 'Length', 'Kmers', 'Taxonomy'
-        bin_size (int, optional): Number of k-mers per bin. Defaults to 1000
-        topk_taxa (int or None, optional): If set, only process the top-k taxa per sequence. Defaults to None
-        min_tax_kmers (int, optional): Minimum number of k-mers required for a taxon to be considered. Defaults to 0
-        max_bins_per_seq (int or None, optional): Maximum number of bins per sequence (downsample if exceeded). Defaults to None
-        mess_true_file (str or None, optional): Path to MESS true mapping file for ground truth taxids. Defaults to None
-        mess_input_file (str or None, optional): Path to MESS input mapping file for predicted taxids. Defaults to None
-
-    Yields:
-        dict: Row dictionary with keys:
-            'seq_id', 'taxon', 'true_taxon', 'bins', 'label', 'label_any',
-            'label_rank', 'labels_per_rank', 'pred_rank', 'rank_index'
-    """
-    if chunk.empty:
-        return
-    view = chunk.loc[chunk['Classified'] == 'C', ['ID', 'Length', 'Kmers', 'Taxonomy']]
-    if view.empty:
-        logger.debug("No classified sequences in chunk, skipping.")
-        return
-
-    if mess_true_file and mess_input_file:
-        if mess_true_file == mess_input_file:
-            mess_map = pd.read_csv(mess_true_file, sep='\t', header=None, index_col=None, names=['seq_id', 'ref'])
-            mess_map['tax_id'] = mess_map['ref'].str.split('|').str[1]
-        else:
-            try:
-                logger.info(f"Processing MESS files: {mess_true_file}, {mess_input_file}")
-                mess_df = pd.read_csv(mess_true_file, sep="\t", header=None, names=['seq_id', 'name'])
-                mess_df['name'] = mess_df['name'].str.split('/').str[0].str[:-1]       
-                mess_df["name"] = mess_df["name"].str.replace(
-                    r'\.(\d)\d*(?:_.*)?',  # regex pattern
-                    r'.\1',                # replacement
-                    regex=True
-                )     
-                mess_input_df = pd.read_csv(mess_input_file, sep="\t", header=0)
-                if (mess_input_df['tax_id'] == 0).all():
-                    mess_input_df['tax_id'] = mess_input_df['fasta'].str.split('__').str[2]
-                mess_input_df['fasta'] = mess_input_df['fasta'].str.split('__').str[-1]    
-                mess_map = (mess_df.set_index('name')
-                                .join(mess_input_df.set_index('fasta')[['tax_id']], how='left')
-                                .reset_index()
-                                .rename(columns={'index': 'name'}))        
-            except:
-                logger.warning(f"Error processing MESS files: {mess_true_file}, {mess_input_file}")
+def process_chunk_iter(
+    chunk,
+    bin_size=1000,
+    topk_taxa=8,
+    min_tax_kmers=10,
+    max_bins_per_seq=None,
+    mess_true_file=None,
+    mess_input_file=None,
+    # --- NEW ---
+    neg_extra=4,              # sample extra tail taxa beyond topk
+    keep_taxonomy=True,       # always include row.Taxonomy (kraken reported)
+    seed=0,
+):
+    ...
+    rng = random.Random(seed)
 
     for row in view.itertuples(index=False):
-        seq_id, kmers_str = row.ID, row.Kmers
-        if not isinstance(kmers_str, str) or not kmers_str:
-            logger.debug(f"No k-mers for sequence {seq_id}, skipping.")
-            continue
-        
-        if mess_true_file:
-            try:
-                true_tax_raw = mess_map.loc[mess_map['seq_id'] == seq_id, 'tax_id']
-            except:
-                logger.warning(f"Error retrieving true taxid for sequence {seq_id} from MESS map.")
-                try:
-                    true_tax_raw = row.ID.split('|')[1]
-                except:
-                    true_tax_raw = row.Taxonomy
-            try:
-                true_tax = normalize_taxid(int(true_tax_raw.iloc[0])) if not true_tax_raw.empty else normalize_taxid(row.Taxonomy)
-            except:
-                true_tax = normalize_taxid(int(true_tax_raw)) if true_tax_raw is not None else normalize_taxid(row.Taxonomy)
-        else:
-            try:
-                true_tax_raw = row.ID.split('|')[1]
-            except:
-                true_tax_raw = row.Taxonomy
-            true_tax = normalize_taxid(true_tax_raw)
-
-        # True lineage + rank map (for Option B per-rank comparison)
-        true_lineage = get_lineage_path(true_tax)
-        if not true_lineage:
-            continue
-        true_at_rank = lineage_to_rank_map(true_lineage, CANONICAL_RANKS)
-
-        # Accumulate per-bin counts for the sequence
+        ...
+        # Accumulate per-bin counts
         bin_counts_by_bin = {}
         tax_totals = defaultdict(int)
         cur_pos = 0
-
         for taxid, count in iter_kmer_tokens(kmers_str):
             tax_totals[taxid] += count
             cur_pos = add_to_bins(bin_counts_by_bin, bin_size, taxid, count, cur_pos)
@@ -310,22 +244,60 @@ def process_chunk_iter(chunk, bin_size=1000, topk_taxa=None, min_tax_kmers=0, ma
         if not bin_counts_by_bin:
             continue
 
+        # ----------------------------
         # Candidate predicted taxa (filter by evidence)
+        # ----------------------------
         candidates = [t for t, c in tax_totals.items() if c >= min_tax_kmers]
+        if not candidates:
+            continue
 
-        # Optional temporal downsample
+        # Optional: always include Kraken-reported taxon
+        keep_set = set()
+        if keep_taxonomy:
+            try:
+                keep_set.add(int(normalize_taxid(row.Taxonomy)))
+            except Exception:
+                pass
+
+        # Sort candidates by support (descending)
+        candidates.sort(key=lambda t: tax_totals[t], reverse=True)
+
+        # Top-K selection
+        if topk_taxa is not None and topk_taxa > 0 and len(candidates) > topk_taxa:
+            top = candidates[:topk_taxa]
+            tail = candidates[topk_taxa:]
+        else:
+            top = candidates
+            tail = []
+
+        # Extra tail sampling (helps calibration / coverage)
+        if neg_extra and tail:
+            m = min(int(neg_extra), len(tail))
+            extra = rng.sample(tail, m)
+        else:
+            extra = []
+
+        # Final candidate list (dedup, preserve order-ish)
+        # Ensure keep_set taxa are included even if not selected
+        selected = []
+        seen = set()
+        for t in top + extra:
+            if t not in seen:
+                selected.append(t)
+                seen.add(t)
+
+        for t in keep_set:
+            if t not in seen and t in tax_totals:   # only if it had evidence in this seq
+                selected.append(t)
+                seen.add(t)
+
+        candidates = selected
+        # ----------------------------
+
+        # Optional temporal downsample (unchanged)
         bin_indices = sorted(bin_counts_by_bin.keys())
         if max_bins_per_seq and len(bin_indices) > max_bins_per_seq:
-            factor = len(bin_indices) / float(max_bins_per_seq)
-            new_bins = {}
-            for i, old_idx in enumerate(bin_indices):
-                tgt = int(i / factor)
-                d = new_bins.get(tgt)
-                if d is None:
-                    d = {}
-                    new_bins[tgt] = d
-                for taxid, cnt in bin_counts_by_bin[old_idx].items():
-                    d[taxid] = d.get(taxid, 0) + cnt
+            ...
             bin_counts_by_bin = new_bins
             bin_indices = sorted(bin_counts_by_bin.keys())
 
@@ -337,28 +309,14 @@ def process_chunk_iter(chunk, bin_size=1000, topk_taxa=None, min_tax_kmers=0, ma
             if not pred_lineage:
                 continue
 
-            # ----- Option B labels -----
-            # any-lineage correctness (classic Option B)
-            label_any = 1 if int(pred_tax) in true_lineage else 0
-
-            # per-rank ancestor maps for predicted lineage
             pred_at_rank = lineage_to_rank_map(pred_lineage, CANONICAL_RANKS)
 
-            # label at predicted rank only
-            p_rank, p_idx = predicted_rank(pred_tax)
-            if p_idx >= 0:
-                label_rank = 1 if (true_at_rank[p_rank] is not None and true_at_rank[p_rank] == pred_at_rank[p_rank]) else 0
-            else:
-                label_rank = 0  # unknown rank -> treat as negative for rank-specific label
-
-            # multi-head labels: match at every canonical rank
             labels_per_rank = []
             for r in CANONICAL_RANKS:
                 tr = true_at_rank[r]
                 pr = pred_at_rank[r]
                 labels_per_rank.append(1 if (tr is not None and pr is not None and tr == pr) else 0)
 
-            # 28-channel features for each bin relative to predicted lineage
             bins_vecs = []
             for b in bin_indices:
                 kmer_tax_counts = bin_counts_by_bin[b]
@@ -366,22 +324,21 @@ def process_chunk_iter(chunk, bin_size=1000, topk_taxa=None, min_tax_kmers=0, ma
                 bins_vecs.append(vec28)
 
             yield {
-                'seq_id': seq_id,
-                'taxon': int(pred_tax),
-                'true_taxon': int(true_tax),
-                'bins': bins_vecs,
-                # labels for Option B
-                'label': label_any,               # legacy
-                'label_any': label_any,
-                'label_rank': label_rank,
-                'labels_per_rank': labels_per_rank,
-                'pred_rank': p_rank,
-                'rank_index': p_idx,
+                "seq_id": seq_id,
+                "taxon": int(pred_tax),
+                "true_taxon": int(true_tax),
+                "bins": bins_vecs,
+                "labels_per_rank": labels_per_rank,
+                # remove these if commented out above; currently undefined
+                # "pred_rank": p_rank,
+                # "rank_index": p_idx,
             }
 
 
+
 def process_chunk_and_write(chunk, max_bins_per_seq=None,
-                            mess_true_file=None, mess_input_file=None):
+                            mess_true_file=None, mess_input_file=None,
+                            topk_taxa=8, min_tax_kmers=10, neg_extra=4):
     """
     Process a chunk of classified sequences, bin features, generate labels, and write output shards or parquet files
 
@@ -406,7 +363,7 @@ def process_chunk_and_write(chunk, max_bins_per_seq=None,
     target_len = globals._shared_target_length
     to_dtype   = globals._shared_to_dtype
 
-    for row in process_chunk_iter(chunk, bin_size=1000, topk_taxa=8, min_tax_kmers=0, max_bins_per_seq=max_bins_per_seq,
+    for row in process_chunk_iter(chunk, bin_size=1000, topk_taxa=topk_taxa, min_tax_kmers=min_tax_kmers, neg_extra=neg_extra, max_bins_per_seq=max_bins_per_seq,
                                   mess_true_file=mess_true_file, mess_input_file=mess_input_file):
         for_rows.append(row)
         need_flush = False
@@ -457,6 +414,7 @@ def process_chunk_and_write_wrapper(args):
     Returns:
         dict or None: Metadata dictionary from the last written batch, or None if nothing was written
     """
-    chunk, max_bins_per_seq, mess_true_file, mess_input_file = args
+    chunk, max_bins_per_seq, mess_true_file, mess_input_file, topk_taxa, min_tax_kmers, neg_extra = args
     return process_chunk_and_write(chunk, max_bins_per_seq=max_bins_per_seq, 
-                                   mess_true_file=mess_true_file, mess_input_file=mess_input_file)
+                                   mess_true_file=mess_true_file, mess_input_file=mess_input_file,
+                                   topk_taxa=topk_taxa, min_tax_kmers=min_tax_kmers, neg_extra=neg_extra)

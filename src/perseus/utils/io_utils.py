@@ -61,8 +61,8 @@ def _write_rows_streaming_parquet(rows, max_batch_rows=256, use_half=False, quan
         taxa    = pa.array([int(r['taxon']) for r in buf], type=pa.int32())
 
         # legacy single label kept as label_any for compatibility
-        labels_any   = pa.array([int(r.get('label_any', 0)) for r in buf], type=pa.int8())
-        labels_rank  = pa.array([int(r.get('label_rank', 0)) for r in buf], type=pa.int8())
+        # labels_any   = pa.array([int(r.get('label_any', 0)) for r in buf], type=pa.int8())
+        # labels_rank  = pa.array([int(r.get('label_rank', 0)) for r in buf], type=pa.int8())
         rank_index   = pa.array([int(r.get('rank_index', -1)) for r in buf], type=pa.int8())
         pred_rank    = pa.array([str(r.get('pred_rank')) if r.get('pred_rank') is not None else None for r in buf], type=pa.string())
 
@@ -84,9 +84,9 @@ def _write_rows_streaming_parquet(rows, max_batch_rows=256, use_half=False, quan
             'seq_id': seq_ids,
             'taxon': taxa,
             'bins': bins_arr,
-            'label': labels_any,          # legacy
-            'label_any': labels_any,      # new
-            'label_rank': labels_rank,    # new
+            # 'label': labels_any,          # legacy
+            # 'label_any': labels_any,      # new
+            # 'label_rank': labels_rank,    # new
             'labels_per_rank': lpr_arr,   # new
             'pred_rank': pred_rank,       # new
             'rank_index': rank_index,     # new
@@ -161,15 +161,15 @@ def _write_rows_streaming_shards(rows, max_batch_rows=4096, target_length=1024, 
         X_list.append(torch.from_numpy(arr.T))   # [28,T]
 
         # labels
-        y_any_list.append(float(r.get('label_any', 0)))
-        y_rank_list.append(float(r.get('label_rank', 0)))
+        # y_any_list.append(float(r.get('label_any', 0)))
+        # y_rank_list.append(float(r.get('label_rank', 0)))
         lpr = r.get('labels_per_rank', [0]*R)
         if len(lpr) != R:
-            tmp = np.zeros(R, dtype=np.float32)
+            tmp = np.zeros(R, dtype=np.uint8)
             m = min(R, len(lpr))
-            tmp[:m] = np.asarray(lpr[:m], dtype=np.float32)
+            tmp[:m] = np.asarray(lpr[:m], dtype=np.uint8)
             lpr = tmp.tolist()
-        y_per_rank_list.append(torch.tensor(lpr, dtype=torch.float32))
+        y_per_rank_list.append(torch.tensor(lpr, dtype=torch.uint8))
 
         id_list.append(str(r.get('seq_id', "")))
         tax_list.append(int(r.get('taxon', -1)))
@@ -195,17 +195,17 @@ def _write_rows_streaming_shards(rows, max_batch_rows=4096, target_length=1024, 
             t = xi.shape[-1]
             x[i, :, :t] = xi.to(dt)
 
-    y_any  = torch.tensor(y_any_list, dtype=torch.float32)
-    y_rank = torch.tensor(y_rank_list, dtype=torch.float32)
+    # y_any  = torch.tensor(y_any_list, dtype=torch.float32)
+    # y_rank = torch.tensor(y_rank_list, dtype=torch.float32)
     y_pr   = torch.stack(y_per_rank_list, dim=0)  # [N,R]
     # legacy mirror
-    y_legacy = y_any.clone()
+    # y_legacy = y_any.clone()
 
     bundle = {
         "x": x,
-        "y": y_legacy,              # legacy
-        "y_any": y_any,
-        "y_rank": y_rank,
+        # "y": y_legacy,              # legacy
+        # "y_any": y_any,
+        # "y_rank": y_rank,
         "y_per_rank": y_pr,
         "seq_id": id_list,
         "taxon": tax_list,
