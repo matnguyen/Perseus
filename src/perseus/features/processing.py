@@ -1,6 +1,7 @@
 import re
 import pandas as pd
 import logging
+import random
 import multiprocessing as mp
 from alive_progress import alive_bar
 from collections import defaultdict
@@ -228,11 +229,72 @@ def process_chunk_iter(
     keep_taxonomy=True,       # always include row.Taxonomy (kraken reported)
     seed=0,
 ):
-    ...
+    if chunk.empty:
+        return
+    view = chunk.loc[chunk['Classified'] == 'C', ['ID', 'Length', 'Kmers', 'Taxonomy']]
+    if view.empty:
+        logger.debug("No classified sequences in chunk, skipping.")
+        return
+
+    if mess_true_file and mess_input_file:
+        if mess_true_file == mess_input_file:
+            mess_map = pd.read_csv(mess_true_file, sep='\t', header=None, index_col=None, names=['seq_id', 'ref'])
+            mess_map['tax_id'] = mess_map['ref'].str.split('|').str[1]
+        else:
+            try:
+                logger.info(f"Processing MESS files: {mess_true_file}, {mess_input_file}")
+                mess_df = pd.read_csv(mess_true_file, sep="\t", header=None, names=['seq_id', 'name'])
+                mess_df['name'] = mess_df['name'].str.split('/').str[0].str[:-1]       
+                mess_df["name"] = mess_df["name"].str.replace(
+                    r'\.(\d)\d*(?:_.*)?',  # regex pattern
+                    r'.\1',                # replacement
+                    regex=True
+                )     
+                mess_input_df = pd.read_csv(mess_input_file, sep="\t", header=0)
+                if (mess_input_df['tax_id'] == 0).all():
+                    mess_input_df['tax_id'] = mess_input_df['fasta'].str.split('__').str[2]
+                mess_input_df['fasta'] = mess_input_df['fasta'].str.split('__').str[-1]    
+                mess_map = (mess_df.set_index('name')
+                                .join(mess_input_df.set_index('fasta')[['tax_id']], how='left')
+                                .reset_index()
+                                .rename(columns={'index': 'name'}))        
+            except:
+                logger.warning(f"Error processing MESS files: {mess_true_file}, {mess_input_file}")
+                
     rng = random.Random(seed)
 
     for row in view.itertuples(index=False):
-        ...
+        seq_id, kmers_str = row.ID, row.Kmers
+        if not isinstance(kmers_str, str) or not kmers_str:
+            logger.debug(f"No k-mers for sequence {seq_id}, skipping.")
+            continue
+        
+        if mess_true_file:
+            try:
+                true_tax_raw = mess_map.loc[mess_map['seq_id'] == seq_id, 'tax_id']
+            except:
+                logger.warning(f"Error retrieving true taxid for sequence {seq_id} from MESS map.")
+                try:
+                    true_tax_raw = row.ID.split('|')[1]
+                except:
+                    true_tax_raw = row.Taxonomy
+            try:
+                true_tax = normalize_taxid(int(true_tax_raw.iloc[0])) if not true_tax_raw.empty else normalize_taxid(row.Taxonomy)
+            except:
+                true_tax = normalize_taxid(int(true_tax_raw)) if true_tax_raw is not None else normalize_taxid(row.Taxonomy)
+        else:
+            try:
+                true_tax_raw = row.ID.split('|')[1]
+            except:
+                true_tax_raw = row.Taxonomy
+            true_tax = normalize_taxid(true_tax_raw)
+
+        # True lineage + rank map (for Option B per-rank comparison)
+        true_lineage = get_lineage_path(true_tax)
+        if not true_lineage:
+            continue
+        true_at_rank = lineage_to_rank_map(true_lineage, CANONICAL_RANKS)
+        
         # Accumulate per-bin counts
         bin_counts_by_bin = {}
         tax_totals = defaultdict(int)

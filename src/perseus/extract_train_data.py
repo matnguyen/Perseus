@@ -32,9 +32,14 @@ from perseus.utils.tax_utils import (
     normalize_taxid,
     fetch_maps
 )
+from perseus.features.features import (
+    _torch_dtype,
+    _resample_TN_to_T
+)
 from perseus.features.init import (
     init_worker,
-    effective_nprocs
+    effective_nprocs,
+    _next_worker_part_name
 )
 from perseus.features.processing import (
     build_tax_context
@@ -59,6 +64,14 @@ from perseus.utils.targets import (
     compute_cutoff_and_exclusion,
     build_targets_from_cutoff
 )
+from perseus.features.processing import (
+    iter_kmer_tokens,
+    add_to_bins
+)
+
+import numpy as np
+from collections import defaultdict
+import torch
 
 # --- Kill hidden thread oversubscription (BLAS/numexpr/etc.) ---
 os.environ.setdefault("OMP_NUM_THREADS", "1")
@@ -237,7 +250,7 @@ def process_chunk_iter(chunk, bin_size=1000, topk_taxa=None, min_tax_kmers=0, ma
                 'labels_per_rank': labels_per_rank,
                 'pred_rank': p_rank,
                 'rank_index': p_idx,
-                'targets': targets if world is not None and excluded_train_sets is not None else None
+                'targets': targets if world is not None and excluded_train_sets is not None else None,
                 'cutoff_rank_index': int(cutoff_idx),
                 'is_excluded': bool(is_exc),
                 'excluded_level': exc_level
@@ -245,17 +258,20 @@ def process_chunk_iter(chunk, bin_size=1000, topk_taxa=None, min_tax_kmers=0, ma
 
 
 def read_kraken_file_for_training(file_path: str,
-                                  out_path: str,
+                                  output_path: str,
                                   world: str,
-                                  excl_species_file: Optional[str],
-                                  excl_genera_file: Optional[str],
-                                  excl_families_file: Optional[str],
+                                  excl_species_file: str,
+                                  excl_genera_file: str,
+                                  excl_families_file: str,
+                                  mess_truth_file: str = None,
+                                  mess_input_file: str = None,
                                   chunksize: int = 1000,
                                   threads: int = 0,
                                   write_format: str = "shards",
                                   shard_size: int = 4096,
                                   target_length: int = 1024,
-                                  to_dtype: str = "float32"):
+                                  to_dtype: str = "float32",
+                                  max_bins_per_seq: int = None):
     """
     Training-specific extraction: writes shards/parquet that include:
       - 'targets' (list[int] or per-rank columns) in coarse->fine order,
@@ -384,7 +400,7 @@ def read_kraken_file_for_training(file_path: str,
             ) as pool:
                 results = pool.imap_unordered(
                     process_chunk_and_write_wrapper,
-                    ((chunk, max_bins_per_seq, mess_truth_file, mess_input_file) for chunk in reader),
+                    ((chunk, max_bins_per_seq, mess_truth_file, mess_input_file, world, excl_sets) for chunk in reader),
                     chunksize=1
                 )
                 with alive_bar(title="Processing chunks", unknown="dots_waves") as bar:
@@ -400,7 +416,7 @@ def read_kraken_file_for_training(file_path: str,
                         write_format, shard_size, target_length, to_dtype, manifest_paths)
             for chunk in reader:
                 meta = process_chunk_and_write(chunk, max_bins_per_seq=max_bins_per_seq,
-                                               mess_true_file=mess_truth_file, mess_input_file=mess_input_file)
+                                               mess_true_file=mess_truth_file, mess_input_file=mess_input_file, world=world, excluded_train_sets=excl_sets)
                 if meta:
                     wrote_rows  += int(meta.get('rows', 0))
                     wrote_files += 1
@@ -415,7 +431,7 @@ def read_kraken_file_for_training(file_path: str,
             ) as pool:
                 results = pool.imap_unordered(
                     process_chunk_and_write_wrapper,
-                    ((chunk, max_bins_per_seq, mess_truth_file, mess_input_file) for chunk in reader),
+                    ((chunk, max_bins_per_seq, mess_truth_file, mess_input_file, world, excl_sets) for chunk in reader),
                     chunksize=1
                 )
                 with alive_bar(title="Processing chunks", unknown="dots_waves") as bar:
@@ -776,6 +792,14 @@ if __name__ == '__main__':
                         help='(Not used) Path to MESS truth file for Option-B labeling (currently inferred from IDs)')
     parser.add_argument('--mess-input-file', type=str, default=None,
                         help='(Not used) Path to MESS input file for Option-B labeling (currently inferred from IDs)')
+    parser.add_argument('--world', type=str, choices=['CORE','S','G','F'], default=None,
+                        help='World setting for cutoff computation (if using excluded sets)')
+    parser.add_argument('--excl-species-file', type=str, default=None,
+                        help='Path to file with excluded species taxids (one per line)')
+    parser.add_argument('--excl-genera-file', type=str, default=None,
+                        help='Path to file with excluded genera taxids (one per line)')
+    parser.add_argument('--excl-families-file', type=str, default=None,
+                        help='Path to file with excluded families taxids (one per line)')
 
     args = parser.parse_args()
     
@@ -791,13 +815,17 @@ if __name__ == '__main__':
         raise SystemExit("MESS input file provided without MESS truth file; required pair missing.")
 
     # Run extraction
-    read_kraken_file(
+    read_kraken_file_for_training(
         args.file_path, args.output_path,
         chunksize=1000, threads=args.threads, max_bins_per_seq=args.max_bins_per_seq,
         write_format=args.format, shard_size=args.shard_size,
         target_length=args.target_length, to_dtype=args.to_dtype,
         mess_truth_file=args.mess_truth_file,
-        mess_input_file=args.mess_input_file
+        mess_input_file=args.mess_input_file,
+        world=args.world,
+        excl_species_file=args.excl_species_file,
+        excl_genera_file=args.excl_genera_file,
+        excl_families_file=args.excl_families_file,
     )
 
     # Parquet-only combining
