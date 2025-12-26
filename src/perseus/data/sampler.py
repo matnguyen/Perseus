@@ -16,46 +16,62 @@ class ShardBatchSampler(torch.utils.data.Sampler):
         drop_last (bool, optional): Whether to drop the last incomplete batch in each shard. Defaults to False
         seed (int or None, optional): Random seed for shuffling. Defaults to None
     """
-    def __init__(self, dataset, batch_size,
-                 shuffle=True, drop_last=False, seed=None):
+    def __init__(self, dataset, batch_size, shuffle=True, drop_last=False, seed=None):
         self.ds = dataset
         self.bs = int(batch_size)
         self.shuffle = bool(shuffle)
         self.drop_last = bool(drop_last)
         self.rng = np.random.default_rng(seed)
-        # build per-shard index lists
-        per = defaultdict(list)
-        for gi, (si, _local) in enumerate(self.ds.index):
-            per[si].append(gi)
-        self.per_shard = dict(per)
+
+        # number of shards
+        if hasattr(self.ds, "sizes"):
+            self.n_shards = len(self.ds.sizes)
+        elif hasattr(self.ds, "paths"):
+            self.n_shards = len(self.ds.paths)
+        else:
+            raise ValueError("Dataset must expose .sizes or .paths to infer #shards")
 
     def __iter__(self):
-        """
-        Yield batches of indices, each batch containing samples from a single shard
-
-        Yields:
-            list[int]: List of sample indices for a batch
-        """
-        shard_ids = list(self.per_shard.keys())
+        shard_ids = np.arange(self.n_shards, dtype=np.int32)
         if self.shuffle:
             self.rng.shuffle(shard_ids)
-        for si in shard_ids:
-            idxs = self.per_shard[si][:]
+
+        for si in shard_ids.tolist():
+            # local indices allowed for this split
+            loc = self.ds.allowed_local_indices(si)
+
+            # loc can be numpy array or torch tensor; normalize to numpy int64
+            if isinstance(loc, torch.Tensor):
+                loc = loc.cpu().numpy()
+            loc = np.asarray(loc)
+
+            if loc.size == 0:
+                continue
+
             if self.shuffle:
-                self.rng.shuffle(idxs)
-            n = len(idxs)
+                self.rng.shuffle(loc)
+
+            n = int(loc.size)
             limit = (n // self.bs) * self.bs if self.drop_last else n
+
+            base = int(self.ds.offsets[si])  # global offset for shard si
+
             for k in range(0, limit, self.bs):
-                yield idxs[k:k+self.bs]
+                batch_locals = loc[k:k + self.bs]
+                # map to global dataset indices
+                yield (base + batch_locals).tolist()
 
     def __len__(self):
-        """
-        Returns the total number of batches
+        # Conservative length computation: sum batches per shard based on allowed count
+        total = 0
+        for si in range(self.n_shards):
+            loc = self.ds.allowed_local_indices(si)
+            if isinstance(loc, torch.Tensor):
+                n = int(loc.numel())
+            else:
+                n = int(np.asarray(loc).size)
 
-        Returns:
-            int: Number of batches
-        """
-        n = 0
-        for idxs in self.per_shard.values():
-            n += (len(idxs) // self.bs) if self.drop_last else math.ceil(len(idxs) / self.bs)
-        return n
+            if n == 0:
+                continue
+            total += (n // self.bs) if self.drop_last else math.ceil(n / self.bs)
+        return total

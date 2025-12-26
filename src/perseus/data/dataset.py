@@ -3,6 +3,8 @@ import time
 import gc
 import json
 import logging
+import bisect
+import numpy as np
 from pathlib import Path
 from collections import OrderedDict
 
@@ -48,7 +50,8 @@ class ShardedCFTorchDataset(Dataset):
         downcast_cache_dtype (str or None, optional): Downcast cache dtype ("float16" or None)
     """
     def __init__(self, manifest_or_dir, subset_index=None, cache_shards=1,
-                 to_float32=False, downcast_cache_dtype="float16"):
+                 to_float32=False, downcast_cache_dtype="float16",
+                 split_dir=None, split="train"):
         p = Path(manifest_or_dir)
         if p.is_dir():
             self.paths = sorted(str(x) for x in p.glob("*.pt"))
@@ -61,6 +64,33 @@ class ShardedCFTorchDataset(Dataset):
             raise ValueError("Pass a shard directory or permute_manifest.json")
         if not self.paths:
             raise FileNotFoundError(f"No shard .pt files under {manifest_or_dir}")
+        
+        self.split_dir = Path(split_dir).resolve() if split_dir else None
+        self.split = split
+        
+        # load sizes
+        if self.split_dir and (self.split_dir / "sizes.json").exists():
+            sizes = json.loads((self.split_dir / "sizes.json").read_text())["sizes"]
+            self.sizes = [int(x) for x in sizes]
+        elif getattr(self, "_sizes", None):
+            self.sizes = [int(x) for x in self._sizes]
+        else:
+            # fallback: expensive
+            self.sizes = []
+            for p in self.paths:
+                m = torch.load(p, map_location="cpu")
+                n = int(m["x"].shape[0]) if "x" in m else len(m["x_list"])
+                self.sizes.append(n)
+                del m
+
+        # prefix sums
+        self.offsets = [0]
+        for n in self.sizes:
+            self.offsets.append(self.offsets[-1] + n)
+        self.total = self.offsets[-1]
+
+        # cache for allowed indices per shard (small)
+        self._allowed_cache = {}
 
         self._cache = OrderedDict()
         self._cache_cap = max(1, int(cache_shards))
@@ -93,7 +123,35 @@ class ShardedCFTorchDataset(Dataset):
         Returns:
             int: Number of samples
         """
-        return len(self.index)
+        # return len(self.index)
+        return self.total
+    
+    def _locate(self, i: int):
+        si = bisect.bisect_right(self.offsets, i) - 1
+        j = i - self.offsets[si]
+        return si, j
+    
+    def allowed_local_indices(self, si: int):
+        """
+        Return a 1D numpy array of local indices allowed for this split.
+        Cached after first load per shard.
+        """
+        if self.split_dir is None:
+            # no split -> everything allowed
+            return np.arange(self.sizes[si], dtype=np.int32)
+
+        if si in self._allowed_cache:
+            return self._allowed_cache[si]
+
+        valmask = torch.load(self.split_dir / f"valmask_{si:06d}.pt", map_location="cpu")
+        if self.split == "val":
+            mask = valmask
+        else:
+            mask = ~valmask
+
+        idx = torch.nonzero(mask, as_tuple=False).view(-1).to(torch.int32).cpu().numpy()
+        self._allowed_cache[si] = idx
+        return idx
 
     def _downcast_inplace(self, m):
         """
@@ -168,7 +226,9 @@ class ShardedCFTorchDataset(Dataset):
                 - "seq_id": str or None
                 - "taxon": str or None
         """
-        si, j = self.index[i]
+        # si, j = self.index[i]
+        # m = self._get_shard(si)
+        si, j = self._locate(i)
         m = self._get_shard(si)
 
         x = (m["x"][j] if "x" in m else m["x_list"][j])  # [C,T]
