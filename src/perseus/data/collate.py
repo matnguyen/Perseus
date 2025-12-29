@@ -109,8 +109,8 @@ class PadMaskCollateCF:
             X[i, :, :Ti] = x[..., :Ti]
             M[i, 0, :Ti] = True
 
-        y_any  = torch.tensor([b["y_any"] for b in batch], dtype=torch.float32)
-        y_rank = torch.tensor([b["y_rank"] for b in batch], dtype=torch.float32)
+        # y_any  = torch.tensor([b["y_any"] for b in batch], dtype=torch.float32)
+        # y_rank = torch.tensor([b["y_rank"] for b in batch], dtype=torch.float32)
         y_pr   = torch.stack([b["y_per_rank"] for b in batch], dim=0)
         rix    = torch.tensor([b["rank_index"] for b in batch], dtype=torch.int64)
         seq_id = [b.get("seq_id", None) for b in batch]
@@ -121,8 +121,8 @@ class PadMaskCollateCF:
             "x": X,
             "mask": M,
             "lengths": Ls,
-            "y_any": y_any,
-            "y_rank": y_rank,
+            # "y_any": y_any,
+            # "y_rank": y_rank,
             "y_per_rank": y_pr,
             "rank_index": rix,
             "seq_id": seq_id,

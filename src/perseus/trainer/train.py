@@ -54,11 +54,17 @@ def train(model, train_loader, val_loader, device, target_mode="per-rank", rank_
 
     best_metric = -1.0
     best_state = None
+    
+    if hasattr(val_loader.batch_sampler, "set_epoch"):
+        val_loader.batch_sampler.set_epoch(0) 
 
     for ep in range(1, epochs+1):
         model.train()
         total_loss = 0.0
         total_n = 0
+        
+        if hasattr(train_loader.batch_sampler, "set_epoch"):
+            train_loader.batch_sampler.set_epoch(ep)
 
         for batch in train_loader:
             x   = batch["x"].to(device, non_blocking=True)

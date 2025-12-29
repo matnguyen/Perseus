@@ -21,8 +21,9 @@ def normalize_y_per_rank_to7(y_per_rank, rank_names):
     Returns:
         torch.Tensor: Tensor of shape (..., 7) with values mapped to canonical ranks, missing set to -1
     """
+    # import pdb; pdb.set_trace()
     R = len(CANONICAL_RANKS)
-    out = torch.full((R,), -1.0, dtype=y_per_rank.dtype, device=y_per_rank.device)
+    out = torch.full((R,), -1, dtype=y_per_rank.dtype, device=y_per_rank.device)
 
     if rank_names is not None and len(rank_names) == y_per_rank.shape[-1]:
         name_to_col = {}
@@ -46,7 +47,7 @@ def normalize_y_per_rank_to7(y_per_rank, rank_names):
     if R_src > len(CANONICAL_RANKS):           
         return y_per_rank[1:8]
     # Too few → pad unknowns (-1)
-    pad = torch.full((len(CANONICAL_RANKS)-R_src,), -1.0, dtype=y_per_rank.dtype, device=y_per_rank.device)
+    pad = torch.full((len(CANONICAL_RANKS)-R_src,), -1, dtype=y_per_rank.dtype, device=y_per_rank.device)
     return torch.cat([y_per_rank, pad], dim=0)
 
 

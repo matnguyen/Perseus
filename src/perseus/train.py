@@ -73,7 +73,7 @@ if __name__ == "__main__":
     ap.add_argument("--model", choices=["cnn","restcn"], default="cnn")
     ap.add_argument("--save",   default="model_cf.pt")
 
-    ap.add_argument("--target", choices=["any","rank","per-rank"], default="any")
+    ap.add_argument("--target", choices=["any","rank","per-rank"], default="per-ranks")
 
     group = ap.add_mutually_exclusive_group()
     group.add_argument("--rank", choices=CANONICAL_RANKS, help="Use only samples with this predicted canonical rank")
@@ -86,6 +86,17 @@ if __name__ == "__main__":
     ap.add_argument("--cache-shards", type=int, default=1, help="Shards kept in RAM per worker")
     ap.add_argument("--downcast", choices=["none","fp16"], default="fp16", help="Downcast shard tensors in cache")
     ap.add_argument("--cpu-float32", action="store_true", help="Cast samples to float32 on CPU before batching")
+    ap.add_argument("--split-dir", type=str, default=None,
+                        help='Directory containing train/val splits (if applicable)')
+    ap.add_argument("--shards-per-epoch", type=int, default=None,
+                        help="(Train only) Number of shards to sample per epoch (for epoch-wise resampling)")
+    ap.add_argument("--samples-per-shard", type=int, default=None,
+                        help="(Train only) Number of samples to draw per shard per epoch (for epoch-wise resampling)")
+    ap.add_argument("--val-shards-per-epoch", type=int, default=None,
+                        help="(Val only) Number of shards to sample per epoch (for epoch-wise resampling)")
+    ap.add_argument("--val-samples-per-shard", type=int, default=None,
+                        help="(Val only) Number of samples to draw per shard per epoch (for epoch-wise resampling)")
+    ap.add_argument("--seed", type=int, default=667, help="Random seed for reproducibility")
 
     args = ap.parse_args()
     setup_logging(args.log_level)
@@ -110,8 +121,8 @@ if __name__ == "__main__":
     if args.ranks:
         for rk in CANONICAL_RANKS:
             LOG.info("=== Predicted Rank: %s ===", rk)
-            _, train_loader = build_loader(args, train_input, args.batch, True,  rank_filter=rk)
-            _, val_loader   = build_loader(args, val_input,   args.batch, False, rank_filter=rk)
+            _, train_loader = build_loader(args, train_input, args.batch, True,  False, rank_filter=rk)
+            _, val_loader   = build_loader(args, val_input,   args.batch, False, True, rank_filter=rk)
             model = make_model(args, out_dim, device)
             save_path = f"{Path(args.save).with_suffix('')}_{args.target}_{rk}.pt"
             rank_idx_gate = RANK_INDEX[rk] if args.target == "rank" else None

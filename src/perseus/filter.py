@@ -36,6 +36,9 @@ if __name__ == "__main__":
     parser.add_argument("--num-workers", type=int, default=4, help="Number of DataLoader workers")
     parser.add_argument("--calibration-dir", type=str, default=None, help="Directory containing calibrators")
     parser.add_argument("--model", type=str, default="cnn", help="Model architecture to use")
+    parser.add_argument("--split-dir", type=str, default=None, 
+                        help='Directory containing train/val splits (if applicable)')
+    parser.add_argument("--seed", type=int, default=667, help="Random seed for reproducibility")
     
     args = parser.parse_args()
     
@@ -50,7 +53,7 @@ if __name__ == "__main__":
     
     # Build data loader
     logging.info("Building data loader...")
-    _, data_loader = build_loader(args, args.input_shards, args.batch_size, False, rank_filter=None)
+    _, data_loader = build_loader(args, args.input_shards, args.batch_size, False, False, rank_filter=None)
     logging.info("Data loader built successfully.")
     
     # Load calibrators if provided
