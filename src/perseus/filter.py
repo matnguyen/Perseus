@@ -5,14 +5,37 @@ import torch
 import pickle
 import pandas as pd
 from alive_progress import alive_bar
+from ete3 import NCBITaxa
 
 from perseus.utils.constants import CANONICAL_RANKS
 from perseus.data.dataset import build_loader
 from perseus.trainer.evaluate import _collect_scores_per_rank
+from perseus.utils.filter_utils import select_one_row_per_seq
+from perseus.utils.tax_utils import (
+    get_lineage_path,
+    get_taxid_to_rank,
+    
+)
 from perseus.models.initialize import (
     make_model,
     load_model
 )
+
+ncbi = NCBITaxa()
+
+def get_rank(taxid):
+    try:
+        rank = ncbi.get_rank([taxid])[taxid]
+    except KeyError:
+        rank = 'no_rank'
+    return rank
+
+def get_lineage(taxid):
+    try:
+        lineage = ncbi.get_lineage(taxid)
+    except ValueError:
+        lineage = []
+    return lineage
 
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO,
@@ -39,6 +62,8 @@ if __name__ == "__main__":
     parser.add_argument("--split-dir", type=str, default=None, 
                         help='Directory containing train/val splits (if applicable)')
     parser.add_argument("--seed", type=int, default=667, help="Random seed for reproducibility")
+    parser.add_argument("--select-one-per-seq", action="store_true", 
+                        help="Select one row per sequence ID from Kraken output using model probabilities")
     
     args = parser.parse_args()
     
@@ -80,7 +105,7 @@ if __name__ == "__main__":
             for i in range(len(probs)):
                 rows.append({
                     "sequence_id": batch["seq_id"][i],
-                    "taxon": batch["taxon"][i],
+                    "perseus_taxid": batch["taxon"][i],
                     "probs_per_rank": probs[i].tolist()
                 })
             
@@ -102,4 +127,51 @@ if __name__ == "__main__":
     merged_df.drop(columns=["probs_per_rank"], inplace=True)
     merged_df.to_csv(args.output_path, sep="\t", index=False)
     logging.info(f"Filtered Kraken output saved to {args.output_path}.")
+    
+    if args.select_one_per_seq:
+        merged_df['perseus_taxid'] = merged_df['perseus_taxid'].fillna(0)
+        merged_df['perseus_taxid'] = merged_df['perseus_taxid'].astype(int)
+        
+        unique_truth = merged_df["kraken_taxid"].unique()
+        lineage_cache = {}
+
+        with alive_bar(len(unique_truth), title="Caching lineages", force_tty=True) as bar:
+            for t in unique_truth:
+                lineage_cache[t] = set(get_lineage(t)) 
+                bar()
+                
+        unique_perseus = merged_df["perseus_taxid"].unique()
+        rank_cache = {}
+
+        with alive_bar(len(unique_perseus), title="Caching ranks", force_tty=True) as bar:
+            for tx in unique_perseus:
+                rank_cache[tx] = get_rank(tx)
+                bar()
+                
+        perseus_in_lineage = []
+        perseus_predicted_rank = []
+
+        with alive_bar(len(merged_df), force_tty=True) as bar:
+            for _, row in merged_df.iterrows():
+                lin = lineage_cache[row["kraken_taxid"]]
+                perseus_in_lineage.append(row["perseus_taxid"] in lin)
+                perseus_predicted_rank.append(rank_cache[row["perseus_taxid"]])
+                bar()
+
+        merged_df["perseus_in_lineage"] = perseus_in_lineage
+        merged_df["perseus_predicted_rank"] = perseus_predicted_rank
+                
+        logging.info("Selecting one row per sequence ID based on model probabilities...")
+        filtered_df = select_one_row_per_seq(
+            merged_df,
+            sequence_col="sequence_id",
+            ranks=["superkingdom","phylum","class","order","family","genus","species"],
+            thresholds=0.5,          
+            # lineage_filter_col="perseus_in_lineage",
+            prefer_lineage=False,
+            tie_breaker="sum_to_rank",
+        )
+        filtered_output_path = args.output_path.replace(".tsv", "_one_per_seq.tsv")
+        filtered_df.to_csv(filtered_output_path, sep="\t", index=False)
+        logging.info(f"Filtered one-per-sequence output saved to {filtered_output_path}.")
     
