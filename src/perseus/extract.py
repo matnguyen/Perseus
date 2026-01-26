@@ -240,10 +240,10 @@ def read_kraken_file(file_path, output_path, chunksize=5000, threads=0, max_bins
             "channels": N_CHANNELS,
             "target_length": int(target_length),
             "dtype": str(to_dtype),
-            "shard_size": int(shard_size),
-            "topk_taxa": int(topk_taxa),
-            "min_tax_kmers": int(min_tax_kmers),
-            "neg_extra": int(neg_extra),
+            "shard_size": shard_size,
+            "topk_taxa": topk_taxa,
+            "min_tax_kmers": min_tax_kmers,
+            "neg_extra": neg_extra,
             "counts": {"approx_rows": int(wrote_rows), "files": int(wrote_files)},
             "labels": {
                 "y_any": "pred_tax ∈ true_lineage",
@@ -377,11 +377,11 @@ if __name__ == '__main__':
                         help='(Not used) Path to MESS truth file for Option-B labeling (currently inferred from IDs)')
     parser.add_argument('--mess-input-file', type=str, default=None,
                         help='(Not used) Path to MESS input file for Option-B labeling (currently inferred from IDs)')
-    parser.add_argument('--topk-taxa', type=int, default=8,
+    parser.add_argument('--topk-taxa', type=int, default=None,
                         help='Number of top taxa to consider per sequence for Option-B labeling')
     parser.add_argument('--min-tax-kmers', type=int, default=10,
                         help='Minimum k-mers assigned to a taxon for it to be considered in Option-B labeling')
-    parser.add_argument('--neg-extra', type=int, default=4,
+    parser.add_argument('--neg-extra', type=int, default=None,
                         help='Number of extra negative taxa to sample per sequence for Option-B labeling')
 
     args = parser.parse_args()
