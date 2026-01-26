@@ -57,10 +57,19 @@ def _init_ncbi_private_db():
     globals_mod.NCBI = NCBITaxa(dbfile=dst_db)
 
 
-def init_worker(tc, lineage_map, descendant_map, canonical_map, out_dir,
-                write_format="parquet", shard_size=4096, target_length=1024,
-                to_dtype="float32", manifest_paths=None, 
-                mess_true_file=None, mess_input_file=None):
+def init_worker(
+    tc, 
+    lineage_map, 
+    descendant_map, 
+    canonical_map, 
+    out_dir,
+    shard_size=4096, 
+    target_length=1024,
+    to_dtype="float32",
+    manifest_paths=None, 
+    mess_true_file=None, 
+    mess_input_file=None
+):
     """
     Init for the feature-extraction pool: set globals + private NCBI DB copy
     """
@@ -70,7 +79,6 @@ def init_worker(tc, lineage_map, descendant_map, canonical_map, out_dir,
     globals_mod._shared_canonical_map  = canonical_map
     globals_mod._shared_out_dir        = out_dir
 
-    globals_mod._shared_write_format   = write_format
     globals_mod._shared_shard_size     = int(shard_size)
     globals_mod._shared_target_length  = int(target_length)
     globals_mod._shared_to_dtype       = str(to_dtype)

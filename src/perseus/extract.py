@@ -4,10 +4,10 @@ extract.py
 ====================================================
 
 Stream Kraken output, produce per-(seq,taxon) 28-channel bin features,
-and write either nested Parquet parts or channel-first .pt shards.
+and write either nested Parquet parts 
 
 Usage (CLI):
-    python extract.py <input> <output> [--format shards]
+    python extract.py <input> <output>
 """
 
 import os
@@ -48,16 +48,23 @@ os.environ.setdefault("OPENBLAS_NUM_THREADS", "1")
 os.environ.setdefault("MKL_NUM_THREADS", "1")
 os.environ.setdefault("NUMEXPR_NUM_THREADS", "1")
 
-logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
 
-def read_kraken_file(file_path, output_path, chunksize=5000, threads=0, max_bins_per_seq=None,
-                     write_format="parquet", shard_size=4096, target_length=1024, to_dtype="float32",
-                     mess_truth_file=None, mess_input_file=None, topk_taxa=8, min_tax_kmers=10, neg_extra=4):
+def read_kraken_file(
+        file_path,
+        output_path, 
+        chunksize=5000, 
+        threads=0, 
+        max_bins_per_seq=None,
+        shard_size=4096, 
+        target_length=1024, 
+        to_dtype="float32",
+        min_tax_kmers=10
+    ):
     """
     Stream Kraken output, produce per-(seq, taxon) 28-channel bin features,
-    and write either nested Parquet parts or channel-first .pt shards
+    and write either nested Parquet parts 
 
     Args:
         file_path (str): Path to the Kraken output file.
@@ -65,19 +72,16 @@ def read_kraken_file(file_path, output_path, chunksize=5000, threads=0, max_bins
         chunksize (int, optional): Number of rows per DataFrame chunk for pools. Defaults to 5000
         threads (int, optional): Number of worker processes (0=auto, 1=single-threaded). Defaults to 0
         max_bins_per_seq (int or None, optional): Max bins per (seq_id, taxon). Defaults to None
-        write_format (str, optional): Output format: 'parquet' or 'shards'. Defaults to 'parquet'
         shard_size (int, optional): Samples per shard (.pt). Defaults to 4096
         target_length (int, optional): Resample time to this length for shards (0 = pad to shard max). Defaults to 1024
         to_dtype (str, optional): Stored dtype for shard tensor. Defaults to "float32"
-        mess_truth_file (str or None, optional): Path to MESS truth file for Option-B labeling. Defaults to None
-        mess_input_file (str or None, optional): Path to MESS input file for Option-B labeling. Defaults to None
 
     Returns:
         None
     """
-    logger.debug(f"Starting read_kraken_file with file_path={file_path}, output_path={output_path}, chunksize={chunksize}, format={write_format}")
+    logger.debug(f"Starting read_kraken_file with file_path={file_path}, output_path={output_path}, chunksize={chunksize}")
 
-    # 1) Build/load tax_context
+    # Build/load tax_context
     tax_context_path = output_path + ".tax_context.pkl"
     if os.path.exists(tax_context_path):
         logger.info(f"Loading cached tax_context from {tax_context_path}")
@@ -92,7 +96,7 @@ def read_kraken_file(file_path, output_path, chunksize=5000, threads=0, max_bins
         logger.info(f"Saved tax_context to {tax_context_path}")
         logger.debug(f"Built tax_context with {len(tax_context)} entries")
 
-    # 2) Collect all numeric taxids
+    # Collect all numeric taxids
     all_taxids = set()
     for _, counts in tax_context.items():
         for t in counts.keys():
@@ -103,7 +107,7 @@ def read_kraken_file(file_path, output_path, chunksize=5000, threads=0, max_bins
                 continue
     logger.debug(f"Collected {len(all_taxids)} unique numeric taxids")
 
-    # 3) Precompute/load lineage/descendant/canonical maps
+    # Precompute/load lineage/descendant/canonical maps
     lineage_map_path    = output_path + ".lineage_map.pkl"
     descendant_map_path = output_path + ".descendant_map.pkl"
     canonical_map_path  = output_path + ".canonical_map.pkl"
@@ -151,12 +155,11 @@ def read_kraken_file(file_path, output_path, chunksize=5000, threads=0, max_bins
             pickle.dump(canonical_map, f, protocol=pickle.HIGHEST_PROTOCOL)
         logger.info("Saved lineage/descendant/canonical maps.")
 
-    # 4) Process CSV in parallel, writing outputs in workers
+    # Process CSV in parallel, writing outputs in workers
     out_dir = Path(output_path)
-    if write_format == "parquet" and out_dir.suffix == ".parquet":
-        out_dir = out_dir.with_suffix("")  # "foo.parquet" -> "foo/"
+    out_dir = out_dir.with_suffix("")  # "foo.parquet" -> "foo/"
     out_dir.mkdir(parents=True, exist_ok=True)
-    logger.debug(f"Output directory: {str(out_dir)} (format={write_format})")
+    logger.debug(f"Output directory: {str(out_dir)}")
 
     rows_per_df = 2000
     nprocs = effective_nprocs()
@@ -166,8 +169,7 @@ def read_kraken_file(file_path, output_path, chunksize=5000, threads=0, max_bins
     wrote_files = 0
 
     # Shared manifest list for shards
-    manager = mp.Manager()
-    manifest_paths = manager.list() if write_format == "shards" else None
+    manifest_paths = None
 
     with pd.read_csv(
         file_path, sep='\t', header=None,
@@ -182,12 +184,12 @@ def read_kraken_file(file_path, output_path, chunksize=5000, threads=0, max_bins
                 processes=nprocs,
                 initializer=init_worker,
                 initargs=(tax_context, lineage_map, descendant_map, canonical_map, str(out_dir),
-                          write_format, shard_size, target_length, to_dtype, manifest_paths),
+                          shard_size, target_length, to_dtype, manifest_paths),
                 maxtasksperchild=200
             ) as pool:
                 results = pool.imap_unordered(
                     process_chunk_and_write_wrapper,
-                    ((chunk, max_bins_per_seq, mess_truth_file, mess_input_file, topk_taxa, min_tax_kmers, neg_extra) for chunk in reader),
+                    ((chunk, max_bins_per_seq, min_tax_kmers) for chunk in reader),
                     chunksize=1
                 )
                 with alive_bar(title="Processing chunks", unknown="dots_waves") as bar:
@@ -200,11 +202,13 @@ def read_kraken_file(file_path, output_path, chunksize=5000, threads=0, max_bins
 
         elif threads == 1:
             init_worker(tax_context, lineage_map, descendant_map, canonical_map, str(out_dir),
-                        write_format, shard_size, target_length, to_dtype, manifest_paths)
+                        shard_size, target_length, to_dtype, manifest_paths)
             for chunk in reader:
-                meta = process_chunk_and_write(chunk, max_bins_per_seq=max_bins_per_seq,
-                                               mess_true_file=mess_truth_file, mess_input_file=mess_input_file, 
-                                               topk_taxa=topk_taxa, min_tax_kmers=min_tax_kmers, neg_extra=neg_extra)
+                meta = process_chunk_and_write(
+                    chunk, 
+                    max_bins_per_seq=max_bins_per_seq,
+                    min_tax_kmers=min_tax_kmers
+                )
                 if meta:
                     wrote_rows  += int(meta.get('rows', 0))
                     wrote_files += 1
@@ -214,12 +218,12 @@ def read_kraken_file(file_path, output_path, chunksize=5000, threads=0, max_bins
                 processes=threads,
                 initializer=init_worker,
                 initargs=(tax_context, lineage_map, descendant_map, canonical_map, str(out_dir),
-                          write_format, shard_size, target_length, to_dtype, manifest_paths),
+                          shard_size, target_length, to_dtype, manifest_paths),
                 maxtasksperchild=200
             ) as pool:
                 results = pool.imap_unordered(
                     process_chunk_and_write_wrapper,
-                    ((chunk, max_bins_per_seq, mess_truth_file, mess_input_file, topk_taxa, min_tax_kmers, neg_extra) for chunk in reader),
+                    ((chunk, max_bins_per_seq, min_tax_kmers) for chunk in reader),
                     chunksize=1
                 )
                 with alive_bar(title="Processing chunks", unknown="dots_waves") as bar:
@@ -231,33 +235,6 @@ def read_kraken_file(file_path, output_path, chunksize=5000, threads=0, max_bins
                         gc.collect()
 
     logger.info(f"Wrote {wrote_files} part files (~{wrote_rows} rows) under {str(out_dir)}")
-
-    # If shards: write manifest json (for your shard trainer)
-    if write_format == "shards":
-        mani = {
-            "source": str(file_path),
-            "outputs": list(manifest_paths) if manifest_paths is not None else [],
-            "channels": N_CHANNELS,
-            "target_length": int(target_length),
-            "dtype": str(to_dtype),
-            "shard_size": shard_size,
-            "topk_taxa": topk_taxa,
-            "min_tax_kmers": min_tax_kmers,
-            "neg_extra": neg_extra,
-            "counts": {"approx_rows": int(wrote_rows), "files": int(wrote_files)},
-            "labels": {
-                "y_any": "pred_tax ∈ true_lineage",
-                "y_rank": "pred ancestor at predicted rank equals true ancestor at that rank",
-                "y_per_rank": f"length {len(CANONICAL_RANKS)}; equality per canonical rank",
-                "rank_index": f"index in CANONICAL_RANKS: {CANONICAL_RANKS}"
-            }
-        }
-        mani_path = out_dir / "permute_manifest.json"
-        with open(mani_path, "w") as f:
-            json.dump(mani, f, indent=2)
-        logger.info(f"Wrote shard manifest → {mani_path}")
-    else:
-        logger.info("Done. You can read later via pyarrow.dataset.dataset(str(out_dir)).to_table()")
 
 
 def combine_parquet_parts(parts_dir, output_file, pattern="part-*.parquet",
@@ -359,82 +336,67 @@ if __name__ == '__main__':
     parser = ap.ArgumentParser(description='Chunked and parallel processing of Kraken output with Option-B labeling.')
     parser.add_argument('file_path', type=str, help='Path to the Kraken output file')
     parser.add_argument('output_path', type=str, help='Path to save the processed output (dir or .parquet)')
-
-    # unchanged
+    
     parser.add_argument('--rows-per-chunk', type=int, default=20000, help='Rows per DataFrame chunk for pools')
-    parser.add_argument('--threads', type=int, default=0, help='Number of worker processes (0=auto)')
     parser.add_argument('--max-bins-per-seq', type=int, default=None, help='Max bins per (seq_id, taxon) (default: None)')
-
-    # NEW: output format and shard controls
-    parser.add_argument('--format', choices=['parquet','shards'], default='parquet',
-                        help='Output format: parquet (original) or shards (.pt, channel-first)')
     parser.add_argument('--shard-size', type=int, default=4096, help='Samples per shard (.pt)')
     parser.add_argument('--target-length', type=int, default=1024,
                         help='Resample time to this length for shards (0 = pad to shard max)')
     parser.add_argument('--to-dtype', choices=['float32','float16','bfloat16'], default='float32',
                         help='Stored dtype for shard tensor')
-    parser.add_argument('--mess-truth-file', type=str, default=None,
-                        help='(Not used) Path to MESS truth file for Option-B labeling (currently inferred from IDs)')
-    parser.add_argument('--mess-input-file', type=str, default=None,
-                        help='(Not used) Path to MESS input file for Option-B labeling (currently inferred from IDs)')
-    parser.add_argument('--topk-taxa', type=int, default=None,
-                        help='Number of top taxa to consider per sequence for Option-B labeling')
     parser.add_argument('--min-tax-kmers', type=int, default=10,
-                        help='Minimum k-mers assigned to a taxon for it to be considered in Option-B labeling')
-    parser.add_argument('--neg-extra', type=int, default=None,
-                        help='Number of extra negative taxa to sample per sequence for Option-B labeling')
+                        help='Minimum k-mers assigned to a taxon for it to be considered')
+    parser.add_argument('--threads', type=int, default=0, help='Number of worker processes (0=auto)')
+    
+    parser.add_argument('--log-level', default='INFO', choices=['DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL'],
+                        help='Set the logging level (default: INFO)')
 
     args = parser.parse_args()
+    
+    logging.basicConfig(
+        level=args.log_level.upper(),
+        format='%(asctime)s - %(levelname)s - %(message)s'
+    )
     
     if args.threads == 1:
         globals_mod = importlib.import_module("perseus.utils.globals")
         globals_mod.NCBI = NCBITaxa() # Pre-initialize for single-threaded mode
-    
-    if args.mess_truth_file and args.mess_input_file is None:
-        logger.critical("MESS truth file provided without MESS input file; this is required. Exiting.")
-        raise SystemExit("MESS truth file provided without MESS input file; required pair missing.")
-    if args.mess_input_file and args.mess_truth_file is None:
-        logger.critical("MESS input file provided without MESS truth file; this is required. Exiting.")
-        raise SystemExit("MESS input file provided without MESS truth file; required pair missing.")
 
     # Run extraction
     read_kraken_file(
-        args.file_path, args.output_path,
-        chunksize=1000, threads=args.threads, max_bins_per_seq=args.max_bins_per_seq,
-        write_format=args.format, shard_size=args.shard_size,
-        target_length=args.target_length, to_dtype=args.to_dtype,
-        mess_truth_file=args.mess_truth_file,
-        mess_input_file=args.mess_input_file,
-        topk_taxa=args.topk_taxa,
-        min_tax_kmers=args.min_tax_kmers,
-        neg_extra=args.neg_extra,
+        args.file_path, 
+        args.output_path,
+        chunksize=1000, 
+        threads=args.threads, 
+        max_bins_per_seq=args.max_bins_per_seq,
+        shard_size=args.shard_size,
+        target_length=args.target_length, 
+        to_dtype=args.to_dtype,
+        min_tax_kmers=args.min_tax_kmers
     )
 
-    # Parquet-only combining
-    if args.format == "parquet":
-        out_p = Path(args.output_path)
-        if out_p.suffix.lower() == ".parquet":
-            parts_dir  = str(out_p.with_suffix(""))     # strip '.parquet' → directory with parts
-            final_file = str(out_p)                     # exact file requested by the user
-        else:
-            parts_dir  = str(out_p)                     # treat as directory of parts (e.g., '.parquet3')
-            final_file = str(out_p / "combined.parquet")
-
-        try:
-            combine_parquet_parts(
-                parts_dir=parts_dir,
-                output_file=final_file,
-                row_group_size=256_000,
-                compression="zstd",
-                write_statistics=True,
-                cleanup_parts=False,
-                sort_files=True,
-            )
-            logger.info(f"Combined parts under {parts_dir} → {final_file}")
-        except Exception as e:
-            logger.exception(f"Failed to combine parts from {parts_dir}: {e}")
+    # Parquet combining
+    out_p = Path(args.output_path)
+    if out_p.suffix.lower() == ".parquet":
+        parts_dir  = str(out_p.with_suffix(""))     # strip '.parquet' → directory with parts
+        final_file = str(out_p)                     # exact file requested by the user
     else:
-        logger.info("Shards written; no Parquet combine step.")
+        parts_dir  = str(out_p)                     # treat as directory of parts (e.g., '.parquet3')
+        final_file = str(out_p / "combined.parquet")
+
+    try:
+        combine_parquet_parts(
+            parts_dir=parts_dir,
+            output_file=final_file,
+            row_group_size=256_000,
+            compression="zstd",
+            write_statistics=True,
+            cleanup_parts=False,
+            sort_files=True,
+        )
+        logger.info(f"Combined parts under {parts_dir} → {final_file}")
+    except Exception as e:
+        logger.exception(f"Failed to combine parts from {parts_dir}: {e}")
         
     # Cleanup ETE3 temp dirs
     for tmpdir in glob.glob("/tmp/perseus_ete3db_*"):

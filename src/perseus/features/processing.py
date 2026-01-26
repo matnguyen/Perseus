@@ -15,7 +15,6 @@ from perseus.features.init import (
 )
 from perseus.utils.io_utils import (
     _write_rows_streaming_parquet,
-    _write_rows_streaming_shards,
     prefetch
 )
 from perseus.utils.tax_utils import (
@@ -224,10 +223,10 @@ def process_chunk_iter(
     max_bins_per_seq=None,
     mess_true_file=None,
     mess_input_file=None,
-    # --- NEW ---
     neg_extra=4,              # sample extra tail taxa beyond topk
     keep_taxonomy=True,       # always include row.Taxonomy (kraken reported)
     seed=0,
+    is_training=False
 ):
     if chunk.empty:
         return
@@ -320,46 +319,48 @@ def process_chunk_iter(
                 keep_set.add(int(normalize_taxid(row.Taxonomy)))
             except Exception:
                 pass
-
+                
         # Sort candidates by support (descending)
         candidates.sort(key=lambda t: tax_totals[t], reverse=True)
 
-        # Top-K selection
-        if topk_taxa is not None and topk_taxa > 0 and len(candidates) > topk_taxa:
-            top = candidates[:topk_taxa]
-            tail = candidates[topk_taxa:]
-        else:
-            top = candidates
-            tail = []
+        if is_training:
+            # Top-K selection
+            if topk_taxa is not None and topk_taxa > 0 and len(candidates) > topk_taxa:
+                top = candidates[:topk_taxa]
+                tail = candidates[topk_taxa:]
+            else:
+                top = candidates
+                tail = []
 
-        # Extra tail sampling (helps calibration / coverage)
-        if neg_extra and tail:
-            m = min(int(neg_extra), len(tail))
-            extra = rng.sample(tail, m)
-        else:
-            extra = []
+            # Extra tail sampling (helps calibration / coverage)
+            if neg_extra and tail:
+                m = min(int(neg_extra), len(tail))
+                extra = rng.sample(tail, m)
+            else:
+                extra = []
 
-        # Final candidate list (dedup, preserve order-ish)
-        # Ensure keep_set taxa are included even if not selected
-        selected = []
-        seen = set()
-        for t in top + extra:
-            if t not in seen:
-                selected.append(t)
-                seen.add(t)
+            # Final candidate list (dedup, preserve order-ish)
+            # Ensure keep_set taxa are included even if not selected
+            selected = []
+            seen = set()
+            for t in top + extra:
+                if t not in seen:
+                    selected.append(t)
+                    seen.add(t)
 
-        for t in keep_set:
-            if t not in seen and t in tax_totals:   # only if it had evidence in this seq
-                selected.append(t)
-                seen.add(t)
+            for t in keep_set:
+                if t not in seen and t in tax_totals:   # only if it had evidence in this seq
+                    selected.append(t)
+                    seen.add(t)
 
-        candidates = selected
-        # ----------------------------
+            candidates = selected
 
-        # Optional temporal downsample (unchanged)
         bin_indices = sorted(bin_counts_by_bin.keys())
         if max_bins_per_seq and len(bin_indices) > max_bins_per_seq:
-            ...
+            # Downsample bins to max_bins_per_seq by uniform subsampling
+            step = len(bin_indices) / max_bins_per_seq
+            selected = [bin_indices[int(i * step)] for i in range(max_bins_per_seq)]
+            new_bins = {b: bin_counts_by_bin[b] for b in selected}
             bin_counts_by_bin = new_bins
             bin_indices = sorted(bin_counts_by_bin.keys())
 
@@ -390,17 +391,21 @@ def process_chunk_iter(
                 "taxon": int(pred_tax),
                 "true_taxon": int(true_tax),
                 "bins": bins_vecs,
-                "labels_per_rank": labels_per_rank,
-                # remove these if commented out above; currently undefined
-                # "pred_rank": p_rank,
-                # "rank_index": p_idx,
+                "labels_per_rank": labels_per_rank
             }
 
 
 
-def process_chunk_and_write(chunk, max_bins_per_seq=None,
-                            mess_true_file=None, mess_input_file=None,
-                            topk_taxa=8, min_tax_kmers=10, neg_extra=4):
+def process_chunk_and_write(
+        chunk, 
+        max_bins_per_seq=None,
+        mess_true_file=None, 
+        mess_input_file=None,
+        topk_taxa=8, 
+        min_tax_kmers=10, 
+        neg_extra=4,
+        is_training=False
+    ):
     """
     Process a chunk of classified sequences, bin features, generate labels, and write output shards or parquet files
 
@@ -420,46 +425,75 @@ def process_chunk_and_write(chunk, max_bins_per_seq=None,
     batch_idx = 0
 
     # Controls copied from shared globals
-    write_fmt  = globals._shared_write_format
     shard_size = globals._shared_shard_size
     target_len = globals._shared_target_length
     to_dtype   = globals._shared_to_dtype
-
-    for row in process_chunk_iter(chunk, bin_size=1000, topk_taxa=topk_taxa, min_tax_kmers=min_tax_kmers, neg_extra=neg_extra, max_bins_per_seq=max_bins_per_seq,
-                                  mess_true_file=mess_true_file, mess_input_file=mess_input_file):
-        for_rows.append(row)
-        need_flush = False
-        if write_fmt == "parquet":
+    
+    if is_training:
+        logger.debug("Processing in training mode.")
+        for row in process_chunk_iter(
+                chunk, bin_size=1000, 
+                topk_taxa=topk_taxa, 
+                min_tax_kmers=min_tax_kmers, 
+                neg_extra=neg_extra, 
+                max_bins_per_seq=max_bins_per_seq,
+                mess_true_file=mess_true_file, 
+                mess_input_file=mess_input_file,
+                is_training=is_training
+            ):
+            for_rows.append(row)
+            need_flush = False
             need_flush = (len(for_rows) >= 512)
-        else:
-            need_flush = (len(for_rows) >= shard_size)
 
-        if need_flush:
-            logger.debug(f"Writing batch {batch_idx} with {len(for_rows)} rows.")
-            if write_fmt == "parquet":
+            if need_flush:
+                logger.debug(f"Writing batch {batch_idx} with {len(for_rows)} rows.")
                 meta = _write_rows_streaming_parquet(for_rows, max_batch_rows=256, use_half=False, quantize_u8=False)
-            else:
-                meta = _write_rows_streaming_shards(for_rows, max_batch_rows=shard_size,
-                                                    target_length=target_len, to_dtype=to_dtype)
-            logger.debug(f"Batch {batch_idx} written: {meta}")
-            total_rows += meta.get('rows', 0) if meta else 0
-            wrote_meta = meta
-            for_rows.clear()
-            batch_idx += 1
+                logger.debug(f"Batch {batch_idx} written: {meta}")
+                total_rows += meta.get('rows', 0) if meta else 0
+                wrote_meta = meta
+                for_rows.clear()
+                batch_idx += 1
 
-    if for_rows:
-        logger.debug(f"Writing final batch {batch_idx} with {len(for_rows)} rows.")
-        if write_fmt == "parquet":
+        if for_rows:
+            logger.debug(f"Writing final batch {batch_idx} with {len(for_rows)} rows.")
             meta_tail = _write_rows_streaming_parquet(for_rows, max_batch_rows=256, use_half=False, quantize_u8=False)
-        else:
-            meta_tail = _write_rows_streaming_shards(for_rows, max_batch_rows=shard_size,
-                                                     target_length=target_len, to_dtype=to_dtype)
-        logger.debug(f"Final batch written: {meta_tail}")
-        total_rows += meta_tail.get('rows', 0) if meta_tail else 0
-        wrote_meta = meta_tail or wrote_meta
+            logger.debug(f"Final batch written: {meta_tail}")
+            total_rows += meta_tail.get('rows', 0) if meta_tail else 0
+            wrote_meta = meta_tail or wrote_meta
 
-    logger.debug(f"Total rows written in process_chunk_and_write: {total_rows}")
-    return wrote_meta
+        logger.debug(f"Total rows written in process_chunk_and_write: {total_rows}")
+        return wrote_meta
+    else:
+        logger.debug("Processing in regular mode.")
+        for row in process_chunk_iter(
+                chunk, 
+                bin_size=1000, 
+                min_tax_kmers=min_tax_kmers, 
+                max_bins_per_seq=max_bins_per_seq,
+                is_training=is_training
+            ):
+            for_rows.append(row)
+            need_flush = False
+            need_flush = (len(for_rows) >= 512)
+
+            if need_flush:
+                logger.debug(f"Writing batch {batch_idx} with {len(for_rows)} rows.")
+                meta = _write_rows_streaming_parquet(for_rows, max_batch_rows=256, use_half=False, quantize_u8=False)
+                logger.debug(f"Batch {batch_idx} written: {meta}")
+                total_rows += meta.get('rows', 0) if meta else 0
+                wrote_meta = meta
+                for_rows.clear()
+                batch_idx += 1
+
+        if for_rows:
+            logger.debug(f"Writing final batch {batch_idx} with {len(for_rows)} rows.")
+            meta_tail = _write_rows_streaming_parquet(for_rows, max_batch_rows=256, use_half=False, quantize_u8=False)
+            logger.debug(f"Final batch written: {meta_tail}")
+            total_rows += meta_tail.get('rows', 0) if meta_tail else 0
+            wrote_meta = meta_tail or wrote_meta
+
+        logger.debug(f"Total rows written in process_chunk_and_write: {total_rows}")
+        return wrote_meta
 
 
 def process_chunk_and_write_wrapper(args):
@@ -476,7 +510,23 @@ def process_chunk_and_write_wrapper(args):
     Returns:
         dict or None: Metadata dictionary from the last written batch, or None if nothing was written
     """
-    chunk, max_bins_per_seq, mess_true_file, mess_input_file, topk_taxa, min_tax_kmers, neg_extra = args
-    return process_chunk_and_write(chunk, max_bins_per_seq=max_bins_per_seq, 
-                                   mess_true_file=mess_true_file, mess_input_file=mess_input_file,
-                                   topk_taxa=topk_taxa, min_tax_kmers=min_tax_kmers, neg_extra=neg_extra)
+    (chunk, max_bins_per_seq, mess_true_file, mess_input_file, topk_taxa, min_tax_kmers, neg_extra, is_training) = args
+    
+    if is_training:
+        return process_chunk_and_write(
+            chunk, 
+            max_bins_per_seq=max_bins_per_seq, 
+            mess_true_file=mess_true_file, 
+            mess_input_file=mess_input_file,
+            topk_taxa=topk_taxa, 
+            min_tax_kmers=min_tax_kmers, 
+            neg_extra=neg_extra,
+            is_training=is_training
+        )
+    else:
+        return process_chunk_and_write(
+            chunk, 
+            max_bins_per_seq=max_bins_per_seq, 
+            min_tax_kmers=min_tax_kmers,
+            is_training=is_training
+        )

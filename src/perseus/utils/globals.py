@@ -8,7 +8,6 @@ _shared_out_dir        = None
 _worker_part_idx       = 0
 
 # Shared writing controls for multiprocessing workers
-_shared_write_format   = "parquet"   # "parquet" | "shards"
 _shared_shard_size     = 4096
 _shared_target_length  = 0           # 0 = pad to shard max
 _shared_to_dtype       = "float32"   # "float32" | "float16" | "bfloat16"
