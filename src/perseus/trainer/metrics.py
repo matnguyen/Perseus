@@ -27,7 +27,7 @@ def binary_auroc(y_true, y_score):
         tps.append(tp); fps.append(fp)
     tps = np.array(tps, dtype=np.float64); fps = np.array(fps, dtype=np.float64)
     tpr = tps / p; fpr = fps / n
-    return np.trapz(tpr, fpr)
+    return np.trapezoid(tpr, fpr)
 
 
 def precision_recall_curve_from_scores(y_true, y_score):
@@ -51,7 +51,7 @@ def precision_recall_curve_from_scores(y_true, y_score):
 
 def binary_aupr(y_true, y_score):
     p, r = precision_recall_curve_from_scores(y_true, y_score)
-    return float(np.trapz(p, r))
+    return float(np.trapezoid(p, r))
 
 
 def confusion_matrix_from_threshold(y_true, y_score, thr):

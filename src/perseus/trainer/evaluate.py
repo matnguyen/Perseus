@@ -12,7 +12,7 @@ from perseus.trainer.metrics import binary_auroc
 logger = logging.getLogger(__name__)
 
 @torch.no_grad()
-def evaluate(model, loader, device, target_mode="per-rank", rank_idx_for_gate=None):
+def evaluate(model, loader, device, rank_idx_for_gate=None):
     """
     Evaluate a model on a validation or test DataLoader
 
@@ -22,7 +22,6 @@ def evaluate(model, loader, device, target_mode="per-rank", rank_idx_for_gate=No
         model (torch.nn.Module): Model to evaluate
         loader (DataLoader): DataLoader providing batches for evaluation
         device (torch.device): Device to run evaluation on
-        target_mode (str, optional): Target mode ("any", "rank", or "per-rank"). Defaults to "any"
         rank_idx_for_gate (int or None, optional): If set, only evaluate samples with this rank index. Defaults to None
 
     Returns:
@@ -51,36 +50,16 @@ def evaluate(model, loader, device, target_mode="per-rank", rank_idx_for_gate=No
                 if extra is not None: extra = extra.to(device, dtype=torch.float32, non_blocking=True)
 
                 logits = model(x.float(), mask=msk, extra=extra)
-                loss = compute_loss_from_batch(logits, batch, device, crit, target_mode, rank_idx_for_gate)
+                loss = compute_loss_from_batch(logits, batch, device, crit, rank_idx_for_gate)
 
-                w = int((batch["y_per_rank"] >= 0).sum().item())
+                w = int((batch["labels_per_rank"] >= 0).sum().item())
                 total_loss += loss.item() * w
                 total_n += w
 
-                if target_mode in ("any","rank"):
-                    if target_mode == "any":
-                        y = batch["y_any"].to(device)
-                    else:
-                        y = batch["y_rank"].to(device)
-                        if rank_idx_for_gate is not None:
-                            gate = (batch["rank_index"] == int(rank_idx_for_gate)).to(device)
-                            y = y[gate]; logits = logits[gate]
-                            bs = y.numel()
-                            if bs == 0:
-                                bar()
-                                continue
-                    all_targets.append(y.detach().cpu())
-                    all_logits.append(logits.detach().cpu())
                 bar()
 
     metrics = {"loss": total_loss / max(total_n,1)}
-    if target_mode in ("any","rank") and all_targets:
-        y = torch.cat(all_targets).float().numpy()
-        s = torch.sigmoid(torch.cat(all_logits)).numpy()
-        pred = (s >= 0.5).astype(np.int32)
-        acc = (pred == y.astype(np.int32)).mean() if y.size else 0.0
-        auroc = binary_auroc(y, s)
-        metrics.update({"acc": float(acc), "auroc": float(auroc)})
+
     return metrics
 
 
@@ -101,7 +80,7 @@ def _collect_scores_per_rank(model, loader, device, calibrators=None, use_calibr
                     logits = model(x, mask=msk, extra=extra)              # [B, 7]
                     probs  = torch.sigmoid(logits)                        # [B, 7]
         
-                    ypr = batch["y_per_rank"].to(device)                  # [B, 7], {-1,0,1}
+                    ypr = batch["labels_per_rank"].to(device)                  # [B, 7], {-1,0,1}
                     
                     probs_cpu = probs.detach().cpu()
                     ypr_cpu  = ypr.detach().cpu()
