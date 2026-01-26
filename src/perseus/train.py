@@ -144,8 +144,8 @@ if __name__ == "__main__":
               epochs=args.epochs, lr=args.lr, save_path=save_path)
 
     LOG.info("Training on ALL samples (no rank filter). target=%s", args.target)
-    _, train_loader = build_loader(args, train_input, args.batch, True,  rank_filter=None)
-    _, val_loader   = build_loader(args, val_input,   args.batch, False, rank_filter=None)
+    _, train_loader = build_loader(args, train_input, args.batch, True,  False, rank_filter=None)
+    _, val_loader   = build_loader(args, val_input,   args.batch, False, True, rank_filter=None)
     model = make_model(args, out_dim, device)
     save_path = f"{Path(args.save).with_suffix('')}_{args.target}.pt"
     train(model, train_loader, val_loader, device,
