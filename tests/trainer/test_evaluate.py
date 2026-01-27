@@ -27,50 +27,11 @@ class DummyDataset(torch.utils.data.Dataset):
         return self.data[idx]
 
 
-def test_evaluate_any_mode():
-    m = importlib.import_module(MODULE)
-    model = DummyModel()
-    dataset = DummyDataset()
-    loader = [dataset[0]]  # Simulate a DataLoader with one batch
-    device = torch.device("cpu")
-    metrics = m.evaluate(model, loader, device, target_mode="any")
-    assert "loss" in metrics
-    assert "acc" in metrics
-    assert "auroc" in metrics
-    assert 0.0 <= metrics["acc"] <= 1.0
-    assert 0.0 <= metrics["auroc"] <= 1.0
-
-
-def test_evaluate_rank_mode():
-    m = importlib.import_module(MODULE)
-    model = DummyModel()
-    dataset = DummyDataset()
-    loader = [dataset[0]]
-    device = torch.device("cpu")
-    metrics = m.evaluate(model, loader, device, target_mode="rank")
-    assert "loss" in metrics
-    assert "acc" in metrics
-    assert "auroc" in metrics
-
-
-def test_evaluate_rank_mode_with_gate():
-    m = importlib.import_module(MODULE)
-    model = DummyModel()
-    dataset = DummyDataset()
-    loader = [dataset[0]]
-    device = torch.device("cpu")
-    # All rank_index == 1, so gating should not filter out all samples
-    metrics = m.evaluate(model, loader, device, target_mode="rank", rank_idx_for_gate=1)
-    assert "loss" in metrics
-    assert "acc" in metrics
-    assert "auroc" in metrics
-
-
 def test_evaluate_empty_loader():
     m = importlib.import_module(MODULE)
     model = DummyModel()
     loader = []
     device = torch.device("cpu")
-    metrics = m.evaluate(model, loader, device, target_mode="any")
+    metrics = m.evaluate(model, loader, device)
     assert "loss" in metrics
     assert metrics["loss"] == 0.0

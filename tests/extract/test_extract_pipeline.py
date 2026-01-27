@@ -100,8 +100,7 @@ def test_build_tax_context_cache(monkeypatch, tmp_path):
         str(p),
         str(out_dir),
         chunksize=1,
-        threads=1,
-        write_format="parquet"
+        threads=1
     )
 
     # Confirm we used cache

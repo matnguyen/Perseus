@@ -185,16 +185,18 @@ def test_process_chunk_and_write_parquet(monkeypatch):
 
     # process_chunk_iter normally does heavy stuff;
     # here we just yield our fake rows regardless of chunk.
-    def fake_process_chunk_iter(chunk, bin_size=1000, topk_taxa=None,
-                                min_tax_kmers=0, max_bins_per_seq=None,
-                                mess_true_file=None, mess_input_file=None):
+    def fake_process_chunk_iter(
+        chunk, 
+        bin_size=1000, 
+        topk_taxa=None,
+        min_tax_kmers=0, 
+        max_bins_per_seq=None,
+        is_training=False
+    ):
         for r in fake_rows:
             yield r
 
     monkeypatch.setattr(m, "process_chunk_iter", fake_process_chunk_iter)
-
-    # Force parquet mode and a known writer
-    m._shared_write_format = "parquet"
 
     calls = []
 
@@ -210,8 +212,7 @@ def test_process_chunk_and_write_parquet(monkeypatch):
     meta = m.process_chunk_and_write(
         chunk=None,
         max_bins_per_seq=None,
-        mess_true_file=None,
-        mess_input_file=None,
+        is_training=False
     )
 
     # --- Check ---
@@ -221,52 +222,3 @@ def test_process_chunk_and_write_parquet(monkeypatch):
     assert len(calls[0]) == len(fake_rows) == 3
     assert meta["rows"] == 3
     assert meta["file"] == "dummy.parquet"
-
-
-def test_process_chunk_and_write_shards(monkeypatch):
-    m = importlib.import_module(MODULE)
-
-    # 5 fake rows so we can test multiple flushes
-    fake_rows = [
-        {"seq_id": f"s{i}"} for i in range(5)
-    ]
-
-    def fake_process_chunk_iter(chunk, bin_size=1000, topk_taxa=None,
-                                min_tax_kmers=0, max_bins_per_seq=None,
-                                mess_true_file=None, mess_input_file=None):
-        for r in fake_rows:
-            yield r
-
-    monkeypatch.setattr(m, "process_chunk_iter", fake_process_chunk_iter)
-
-    # Shard mode: flush every _shared_shard_size rows
-    m._shared_write_format = "shards"
-    m._shared_shard_size = 2
-    m._shared_target_length = 0
-    m._shared_to_dtype = "float32"
-
-    calls = []
-
-    def fake_write_shards(rows, max_batch_rows, target_length, to_dtype):
-        batch = list(rows)
-        calls.append(batch)
-        # meta mimics real writer: rows count + file name
-        return {"rows": len(batch), "file": f"shard{len(calls)}.pt"}
-
-    monkeypatch.setattr(m, "_write_rows_streaming_shards", fake_write_shards)
-
-    # --- Run ---
-    meta = m.process_chunk_and_write(
-        chunk=None,
-        max_bins_per_seq=None,
-        mess_true_file=None,
-        mess_input_file=None,
-    )
-
-    # --- Check ---
-    # shard_size=2 and 5 rows total → flushes at:
-    #  rows 1-2, rows 3-4, then final row 5
-    assert [len(b) for b in calls] == [2, 2, 1]
-    # last meta should correspond to the last batch
-    assert meta["rows"] == 1
-    assert meta["file"] == "shard3.pt"

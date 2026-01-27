@@ -5,26 +5,30 @@ import os
 MODULE = "perseus.trainer.train"
 
 class DummyModel(torch.nn.Module):
-    def __init__(self):
+    def __init__(self, n_ranks=3):
         super().__init__()
-        self.linear = torch.nn.Linear(10, 1)
+        self.linear = torch.nn.Linear(10, n_ranks)
     def forward(self, x, mask=None, extra=None):
-        return self.linear(x).squeeze(-1)
+        if x.dim() == 3 and x.shape[-1] == 1:
+            x = x.squeeze(-1)
+        return self.linear(x)
 
 
 class DummyDataset(torch.utils.data.Dataset):
-    def __init__(self, n=8):
+    def __init__(self, n=8, C=10, T=1, n_ranks=3):
         self.n = n
+        self.C = C
+        self.T = T
+        self.n_ranks = n_ranks
     def __len__(self):
         return self.n
     def __getitem__(self, idx):
         return {
-            "x": torch.randn(10),
-            "mask": torch.ones(1),
+            "x": torch.randn(self.C, self.T),  # shape: [C, T]
+            "mask": torch.ones(self.T),        # shape: [T]
             "lengths": torch.ones(1),
-            "y_any": torch.tensor([1.0]),
-            "y_rank": torch.tensor([1.0]),
-            "rank_index": torch.tensor([1]),
+            "labels_per_rank": torch.ones(self.n_ranks),  # shape: [n_ranks]
+            "rank_index": torch.arange(self.n_ranks),     # shape: [n_ranks]
         }
 
 

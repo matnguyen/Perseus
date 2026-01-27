@@ -13,7 +13,7 @@ from perseus.trainer.regularization import random_bin_masking_batch
 
 logger = logging.getLogger(__name__)
 
-def train(model, train_loader, val_loader, device, target_mode="per-rank", rank_idx_for_gate=None,
+def train(model, train_loader, val_loader, device, rank_idx_for_gate=None,
           epochs=10, lr=1e-3, save_path="model_cf.pt"):
     """
     Train a model using the provided training and validation DataLoaders
@@ -26,7 +26,6 @@ def train(model, train_loader, val_loader, device, target_mode="per-rank", rank_
         train_loader (DataLoader): DataLoader for training data
         val_loader (DataLoader): DataLoader for validation data
         device (torch.device): Device to run training on
-        target_mode (str, optional): Target mode ("any", "rank", or "per-rank"). Defaults to "any"
         rank_idx_for_gate (int or None, optional): If set, applies a mask for the specified rank index. Defaults to None
         epochs (int, optional): Number of training epochs. Defaults to 10
         lr (float, optional): Learning rate for the optimizer. Defaults to 1e-3
@@ -77,7 +76,7 @@ def train(model, train_loader, val_loader, device, target_mode="per-rank", rank_
             if msk is not None:   msk = msk.to(device, non_blocking=True)           # bool/int ok
             if extra is not None: extra = extra.to(device, dtype=torch.float32, non_blocking=True)
             
-            w = int((batch["y_per_rank"] >= 0).sum().item())
+            w = int((batch["labels_per_rank"] >= 0).sum().item())
             if w == 0: 
                 continue
 
@@ -88,14 +87,14 @@ def train(model, train_loader, val_loader, device, target_mode="per-rank", rank_
             if scaler:
                 with torch.amp.autocast('cuda', dtype=torch.float16):
                     logits = model(x, mask=msk, extra=extra)
-                    loss = compute_loss_from_batch(logits, batch, device, crit, target_mode, rank_idx_for_gate)
+                    loss = compute_loss_from_batch(logits, batch, device, crit, rank_idx_for_gate)
                 scaler.scale(loss).backward()
                 torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
                 scaler.step(optim)
                 scaler.update()
             else:
                 logits = model(x, mask=msk, extra=extra)
-                loss = compute_loss_from_batch(logits, batch, device, crit, target_mode, rank_idx_for_gate)
+                loss = compute_loss_from_batch(logits, batch, device, crit, rank_idx_for_gate)
                 loss.backward()
                 torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
                 optim.step()
@@ -106,7 +105,7 @@ def train(model, train_loader, val_loader, device, target_mode="per-rank", rank_
         logger.info(f"Epoch {ep:02d} training complete, validating ...")
         train_loss = total_loss / max(total_n,1)
 
-        val_metrics = evaluate(model, val_loader, device, target_mode, rank_idx_for_gate)
+        val_metrics = evaluate(model, val_loader, device, rank_idx_for_gate)
         logger.info(f"Epoch {ep:02d} | train_loss={train_loss:.4f} | "
                  f"val_loss={val_metrics['loss']:.4f}" +
                  (f" | val_acc={val_metrics.get('acc',float('nan')):.4f} | val_auroc={val_metrics.get('auroc',float('nan')):.4f}"
