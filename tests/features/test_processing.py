@@ -2,6 +2,7 @@ import importlib
 import pandas as pd
 
 MODULE = "perseus.features.processing"
+GLOBALS_MODULE = "perseus.utils.globals"
 
 """
 Tests for parse_kmers and iter_kmer_tokens
@@ -172,23 +173,19 @@ def test_add_to_bins_distribution():
 
 """
 Tests for process_chunk_and_write
-"""
-def test_process_chunk_and_write_parquet(monkeypatch):
+"""    
+def test_process_chunk_and_write_shards(monkeypatch):
     m = importlib.import_module(MODULE)
+    globals_mod = importlib.import_module(GLOBALS_MODULE)
 
-    # --- Fake rows that process_chunk_iter will yield ---
+    # 5 fake rows so we can test multiple flushes
     fake_rows = [
-        {"seq_id": "s1"},
-        {"seq_id": "s2"},
-        {"seq_id": "s3"},
+        {"seq_id": f"s{i}"} for i in range(5)
     ]
 
-    # process_chunk_iter normally does heavy stuff;
-    # here we just yield our fake rows regardless of chunk.
     def fake_process_chunk_iter(
         chunk, 
         bin_size=1000, 
-        topk_taxa=None,
         min_tax_kmers=0, 
         max_bins_per_seq=None,
         is_training=False
@@ -198,27 +195,33 @@ def test_process_chunk_and_write_parquet(monkeypatch):
 
     monkeypatch.setattr(m, "process_chunk_iter", fake_process_chunk_iter)
 
+    # Shard mode: flush every _shared_shard_size rows
+    globals_mod._shared_shard_size = 2
+    globals_mod._shared_target_length = 0
+    globals_mod._shared_to_dtype = "float32"
+
     calls = []
 
-    def fake_write_parquet(rows, max_batch_rows=256, use_half=False, quantize_u8=False):
-        # record what was passed in
+    def fake_write_shards(rows, max_batch_rows, target_length, to_dtype):
         batch = list(rows)
         calls.append(batch)
-        return {"rows": len(batch), "file": "dummy.parquet"}
+        # meta mimics real writer: rows count + file name
+        return {"rows": len(batch), "file": f"shard{len(calls)}.pt"}
 
-    monkeypatch.setattr(m, "_write_rows_streaming_parquet", fake_write_parquet)
+    monkeypatch.setattr(m, "_write_rows_streaming_shards", fake_write_shards)
 
     # --- Run ---
     meta = m.process_chunk_and_write(
         chunk=None,
         max_bins_per_seq=None,
-        is_training=False
+        mess_true_file=None,
+        mess_input_file=None,
     )
 
     # --- Check ---
-    # parquet path uses a threshold of 512 rows before flushing,
-    # so with only 3 rows we should get exactly one final flush.
-    assert len(calls) == 1
-    assert len(calls[0]) == len(fake_rows) == 3
-    assert meta["rows"] == 3
-    assert meta["file"] == "dummy.parquet"
+    # shard_size=2 and 5 rows total → flushes at:
+    #  rows 1-2, rows 3-4, then final row 5
+    assert [len(b) for b in calls] == [2, 2, 1]
+    # last meta should correspond to the last batch
+    assert meta["rows"] == 1
+    assert meta["file"] == "shard3.pt"

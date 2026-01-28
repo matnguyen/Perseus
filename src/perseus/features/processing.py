@@ -14,7 +14,7 @@ from perseus.features.init import (
     effective_nprocs
 )
 from perseus.utils.io_utils import (
-    _write_rows_streaming_parquet,
+    _write_rows_streaming_shards,
     prefetch
 )
 from perseus.utils.tax_utils import (
@@ -443,11 +443,12 @@ def process_chunk_and_write(
             ):
             for_rows.append(row)
             need_flush = False
-            need_flush = (len(for_rows) >= 512)
+            need_flush = (len(for_rows) >= shard_size)
 
             if need_flush:
                 logger.debug(f"Writing batch {batch_idx} with {len(for_rows)} rows.")
-                meta = _write_rows_streaming_parquet(for_rows, max_batch_rows=256, use_half=False, quantize_u8=False)
+                meta = _write_rows_streaming_shards(for_rows, max_batch_rows=shard_size,
+                                                    target_length=target_len, to_dtype=to_dtype)
                 logger.debug(f"Batch {batch_idx} written: {meta}")
                 total_rows += meta.get('rows', 0) if meta else 0
                 wrote_meta = meta
@@ -456,7 +457,8 @@ def process_chunk_and_write(
 
         if for_rows:
             logger.debug(f"Writing final batch {batch_idx} with {len(for_rows)} rows.")
-            meta_tail = _write_rows_streaming_parquet(for_rows, max_batch_rows=256, use_half=False, quantize_u8=False)
+            meta_tail = _write_rows_streaming_shards(for_rows, max_batch_rows=shard_size,
+                                                     target_length=target_len, to_dtype=to_dtype)
             logger.debug(f"Final batch written: {meta_tail}")
             total_rows += meta_tail.get('rows', 0) if meta_tail else 0
             wrote_meta = meta_tail or wrote_meta
@@ -474,11 +476,12 @@ def process_chunk_and_write(
             ):
             for_rows.append(row)
             need_flush = False
-            need_flush = (len(for_rows) >= 512)
+            need_flush = (len(for_rows) >= shard_size)
 
             if need_flush:
                 logger.debug(f"Writing batch {batch_idx} with {len(for_rows)} rows.")
-                meta = _write_rows_streaming_parquet(for_rows, max_batch_rows=256, use_half=False, quantize_u8=False)
+                meta = _write_rows_streaming_shards(for_rows, max_batch_rows=shard_size,
+                                                    target_length=target_len, to_dtype=to_dtype)
                 logger.debug(f"Batch {batch_idx} written: {meta}")
                 total_rows += meta.get('rows', 0) if meta else 0
                 wrote_meta = meta
@@ -487,7 +490,8 @@ def process_chunk_and_write(
 
         if for_rows:
             logger.debug(f"Writing final batch {batch_idx} with {len(for_rows)} rows.")
-            meta_tail = _write_rows_streaming_parquet(for_rows, max_batch_rows=256, use_half=False, quantize_u8=False)
+            meta_tail = _write_rows_streaming_shards(for_rows, max_batch_rows=shard_size,
+                                                     target_length=target_len, to_dtype=to_dtype)
             logger.debug(f"Final batch written: {meta_tail}")
             total_rows += meta_tail.get('rows', 0) if meta_tail else 0
             wrote_meta = meta_tail or wrote_meta

@@ -80,6 +80,13 @@ def read_kraken_file(
         None
     """
     logger.debug(f"Starting read_kraken_file with file_path={file_path}, output_path={output_path}, chunksize={chunksize}")
+    
+    # Set vars needed only for training
+    mess_true_file = None
+    mess_input_file = None
+    topk_taxa = None
+    neg_extra = None
+    is_training = False
 
     # Build/load tax_context
     tax_context_path = output_path + ".tax_context.pkl"
@@ -157,26 +164,34 @@ def read_kraken_file(
 
     # Process CSV in parallel, writing outputs in workers
     out_dir = Path(output_path)
-    out_dir = out_dir.with_suffix("")  # "foo.parquet" -> "foo/"
     out_dir.mkdir(parents=True, exist_ok=True)
     logger.debug(f"Output directory: {str(out_dir)}")
 
-    rows_per_df = 2000
-    nprocs = effective_nprocs()
+    nprocs = effective_nprocs() if threads == 0 else threads
     logger.info(f"Processing with {nprocs if threads==0 else threads} workers; writing under {str(out_dir)}")
+    
+    # Count total rows for better chunk size calculation
+    logger.info("Counting rows in input file...")
+    total_rows = sum(1 for _ in open(file_path, 'r'))
+    logger.info(f"Total rows in file: {total_rows:,}")
+    
+    # Adjust chunksize based on number of workers 
+    adjusted_chunksize = max(total_rows // (nprocs * 10), 2000)
+    logger.debug(f"Adjusted chunksize for reading: {adjusted_chunksize}")
 
     wrote_rows = 0
     wrote_files = 0
 
     # Shared manifest list for shards
-    manifest_paths = None
+    manager = mp.Manager()
+    manifest_paths = manager.list() 
 
     with pd.read_csv(
         file_path, sep='\t', header=None,
         names=['Classified', 'ID', 'Taxonomy', 'Length', 'Kmers'],
         dtype={'Classified': 'category', 'ID': 'string', 'Taxonomy': 'string', 'Length': 'int32', 'Kmers': 'string'},
         engine='c',
-        chunksize=rows_per_df
+        chunksize=adjusted_chunksize
     ) as reader:
 
         if threads == 0:
@@ -189,7 +204,7 @@ def read_kraken_file(
             ) as pool:
                 results = pool.imap_unordered(
                     process_chunk_and_write_wrapper,
-                    ((chunk, max_bins_per_seq, min_tax_kmers) for chunk in reader),
+                    ((chunk, max_bins_per_seq, mess_true_file, mess_input_file, topk_taxa, min_tax_kmers, neg_extra, is_training) for chunk in reader),
                     chunksize=1
                 )
                 with alive_bar(title="Processing chunks", unknown="dots_waves") as bar:
@@ -205,9 +220,14 @@ def read_kraken_file(
                         shard_size, target_length, to_dtype, manifest_paths)
             for chunk in reader:
                 meta = process_chunk_and_write(
-                    chunk, 
+                    chunk,
+                    mess_true_file=mess_true_file,
+                    mess_input_file=mess_input_file,
+                    topk_taxa=topk_taxa, 
                     max_bins_per_seq=max_bins_per_seq,
-                    min_tax_kmers=min_tax_kmers
+                    min_tax_kmers=min_tax_kmers,
+                    neg_extra=neg_extra,
+                    is_training=is_training
                 )
                 if meta:
                     wrote_rows  += int(meta.get('rows', 0))
@@ -223,7 +243,7 @@ def read_kraken_file(
             ) as pool:
                 results = pool.imap_unordered(
                     process_chunk_and_write_wrapper,
-                    ((chunk, max_bins_per_seq, min_tax_kmers) for chunk in reader),
+                    ((chunk, max_bins_per_seq, mess_true_file, mess_input_file, topk_taxa, min_tax_kmers, neg_extra, is_training) for chunk in reader),
                     chunksize=1
                 )
                 with alive_bar(title="Processing chunks", unknown="dots_waves") as bar:
@@ -235,6 +255,28 @@ def read_kraken_file(
                         gc.collect()
 
     logger.info(f"Wrote {wrote_files} part files (~{wrote_rows} rows) under {str(out_dir)}")
+    
+    # Write manifest json 
+    mani = {
+        "source": str(file_path),
+        "outputs": list(manifest_paths) if manifest_paths is not None else [],
+        "channels": N_CHANNELS,
+        "target_length": int(target_length),
+        "dtype": str(to_dtype),
+        "shard_size": shard_size,
+        "topk_taxa": topk_taxa,
+        "min_tax_kmers": min_tax_kmers,
+        "neg_extra": neg_extra,
+        "counts": {"approx_rows": int(wrote_rows), "files": int(wrote_files)},
+        "labels": {
+            "labels_per_rank": f"length {len(CANONICAL_RANKS)}; equality per canonical rank",
+            "rank_index": f"index in CANONICAL_RANKS: {CANONICAL_RANKS}"
+        }
+    }
+    mani_path = out_dir / "permute_manifest.json"
+    with open(mani_path, "w") as f:
+        json.dump(mani, f, indent=2)
+    logger.info(f"Wrote shard manifest → {mani_path}")
 
 
 def combine_parquet_parts(parts_dir, output_file, pattern="part-*.parquet",
@@ -335,7 +377,7 @@ if __name__ == '__main__':
     """
     parser = ap.ArgumentParser(description='Chunked and parallel processing of Kraken output with Option-B labeling.')
     parser.add_argument('file_path', type=str, help='Path to the Kraken output file')
-    parser.add_argument('output_path', type=str, help='Path to save the processed output (dir or .parquet)')
+    parser.add_argument('output_path', type=str, help='Path to output directory')
     
     parser.add_argument('--rows-per-chunk', type=int, default=20000, help='Rows per DataFrame chunk for pools')
     parser.add_argument('--max-bins-per-seq', type=int, default=None, help='Max bins per (seq_id, taxon) (default: None)')
@@ -374,29 +416,6 @@ if __name__ == '__main__':
         to_dtype=args.to_dtype,
         min_tax_kmers=args.min_tax_kmers
     )
-
-    # Parquet combining
-    out_p = Path(args.output_path)
-    if out_p.suffix.lower() == ".parquet":
-        parts_dir  = str(out_p.with_suffix(""))     # strip '.parquet' → directory with parts
-        final_file = str(out_p)                     # exact file requested by the user
-    else:
-        parts_dir  = str(out_p)                     # treat as directory of parts (e.g., '.parquet3')
-        final_file = str(out_p / "combined.parquet")
-
-    try:
-        combine_parquet_parts(
-            parts_dir=parts_dir,
-            output_file=final_file,
-            row_group_size=256_000,
-            compression="zstd",
-            write_statistics=True,
-            cleanup_parts=False,
-            sort_files=True,
-        )
-        logger.info(f"Combined parts under {parts_dir} → {final_file}")
-    except Exception as e:
-        logger.exception(f"Failed to combine parts from {parts_dir}: {e}")
         
     # Cleanup ETE3 temp dirs
     for tmpdir in glob.glob("/tmp/perseus_ete3db_*"):
