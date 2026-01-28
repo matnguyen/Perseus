@@ -123,7 +123,7 @@ def _write_rows_streaming_shards(rows, max_batch_rows=4096, target_length=1024, 
     # record path into shared manifest list (thread/process-safe)
     try:
         if globals._shared_manifest_paths is not None:
-            globals._shared_manifest_paths.append(fpath)
+            globals._shared_manifest_paths.append(os.path.abspath(fpath))
     except Exception:
         pass
 

@@ -273,7 +273,7 @@ def read_kraken_file(
             "rank_index": f"index in CANONICAL_RANKS: {CANONICAL_RANKS}"
         }
     }
-    mani_path = out_dir / "permute_manifest.json"
+    mani_path = out_dir / "manifest.json"
     with open(mani_path, "w") as f:
         json.dump(mani, f, indent=2)
     logger.info(f"Wrote shard manifest → {mani_path}")

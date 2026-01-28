@@ -67,11 +67,7 @@ class ShardedCFTorchDataset(Dataset):
             outs = mani.get("outputs", [])
             if not outs:
                 raise FileNotFoundError(f"manifest has no outputs: {p}")
-            # self.paths = [str((Path(x) if os.path.isabs(x) else (base / x)).resolve()) for x in outs]
-            # self.paths = [x if "/home/mnguye99/scratch/training_data_inclusion_exclusion/runs/" in x else os.path.join('/home/mnguye99/scratch/training_data_inclusion_exclusion/runs/', x) for x in outs]
-            # self.paths = [os.path.join(base, x) for x in outs]
-            self.paths = [os.path.join('/home/mnguye99/scratch/zymo', x) for x in outs]
-            # self.paths = [os.path.join('/weka/scratch/mschatz/mnguye99/biodigs/', x) for x in outs]
+            self.paths = [str((Path(x) if os.path.isabs(x) else (base / x)).resolve()) for x in outs]
             self.manifest_dir = base
             mani_sizes = mani.get("sizes", None)
         else:
