@@ -71,7 +71,7 @@ class ShardedCFTorchDataset(Dataset):
             self.manifest_dir = base
             mani_sizes = mani.get("sizes", None)
         else:
-            raise ValueError("Pass a shard directory or permute_manifest.json")
+            raise ValueError("Pass a shard directory or manifest.json")
 
         # --- sizes: prefer split_dir/sizes.json, else manifest sizes, else fallback ---
         self.sizes = None

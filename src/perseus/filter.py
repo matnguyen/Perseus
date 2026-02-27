@@ -9,13 +9,7 @@ from ete3 import NCBITaxa
 
 from perseus.utils.constants import CANONICAL_RANKS
 from perseus.data.dataset import build_loader
-from perseus.trainer.evaluate import _collect_scores_per_rank
 from perseus.utils.filter_utils import select_one_row_per_seq
-from perseus.utils.tax_utils import (
-    get_lineage_path,
-    get_taxid_to_rank,
-    
-)
 from perseus.models.initialize import (
     make_model,
     load_model
@@ -57,8 +51,6 @@ if __name__ == "__main__":
     parser.add_argument("--downcast", choices=["none","fp16"], default="fp16", help="Downcast shard tensors in cache")
     parser.add_argument("--cpu-float32", action="store_true", help="Cast samples to float32 on CPU before batching")
     parser.add_argument("--num-workers", type=int, default=4, help="Number of DataLoader workers")
-    parser.add_argument("--calibration-dir", type=str, default=None, help="Directory containing calibrators")
-    parser.add_argument("--model", type=str, default="cnn", help="Model architecture to use")
     parser.add_argument("--split-dir", type=str, default=None, 
                         help='Directory containing train/val splits (if applicable)')
     parser.add_argument("--seed", type=int, default=667, help="Random seed for reproducibility")
@@ -80,36 +72,28 @@ if __name__ == "__main__":
     logging.info("Building data loader...")
     _, data_loader = build_loader(args, args.input_shards, args.batch_size, False, False, rank_filter=None)
     logging.info("Data loader built successfully.")
-    
-    # Load calibrators if provided
-    if args.calibration_dir is not None:
-        logging.info("Loading calibrators...")
-        calibrators = {}
-        for r,name in enumerate(CANONICAL_RANKS):
-            with open(os.path.join(args.calibration_dir, f"calibrator_{name}.pkl"), "rb") as f:
-                calibrators[r] = pickle.load(f)
 
     rows = []
 
     with torch.no_grad():
         logging.info("Collecting model scores...")
-        # with alive_bar(len(data_loader), title="Scoring sequences") as bar:
-        for batch in data_loader:
-            # Forward 
-            x = batch["x"].to(device, non_blocking=True).float()
-            mask = batch["mask"].to(device, non_blocking=True)
-            extra = torch.log1p(batch["lengths"].to(device, non_blocking=True).float()).unsqueeze(1)
-            logits = model(x, mask=mask, extra=extra)
-            probs = torch.sigmoid(logits).detach().cpu().numpy()
+        with alive_bar(len(data_loader), title="Scoring sequences") as bar:
+            for batch in data_loader:
+                # Forward 
+                x = batch["x"].to(device, non_blocking=True).float()
+                mask = batch["mask"].to(device, non_blocking=True)
+                extra = torch.log1p(batch["lengths"].to(device, non_blocking=True).float()).unsqueeze(1)
+                logits = model(x, mask=mask, extra=extra)
+                probs = torch.sigmoid(logits).detach().cpu().numpy()
+                
+                for i in range(len(probs)):
+                    rows.append({
+                        "sequence_id": batch["seq_id"][i],
+                        "perseus_taxid": batch["taxon"][i],
+                        "probs_per_rank": probs[i].tolist()
+                    })
             
-            for i in range(len(probs)):
-                rows.append({
-                    "sequence_id": batch["seq_id"][i],
-                    "perseus_taxid": batch["taxon"][i],
-                    "probs_per_rank": probs[i].tolist()
-                })
-            
-                # bar()
+                bar()
     # Load Kraken output
     kraken_df = pd.read_csv(args.input_kraken, sep="\t", header=None, 
                             names=["classified", "sequence_id", "kraken_taxonomy", "length", "kmers"])
@@ -167,7 +151,6 @@ if __name__ == "__main__":
             sequence_col="sequence_id",
             ranks=["superkingdom","phylum","class","order","family","genus","species"],
             thresholds=0.5,          
-            # lineage_filter_col="perseus_in_lineage",
             prefer_lineage=False,
             tie_breaker="sum_to_rank",
         )

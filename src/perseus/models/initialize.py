@@ -2,7 +2,6 @@ import torch
 import logging
 
 from perseus.models.cnn import CNN1D_CF
-from perseus.models.restcn import ResTCN_CF
 from perseus.utils.constants import N_CHANNELS
 
 LOG = logging.getLogger(__name__)
@@ -17,12 +16,8 @@ def make_model(args, out_dim, device):
     Returns:
         torch.nn.Module: Instantiated model moved to the selected device.
     """
-    if args.model == "cnn":
-        LOG.info("Model: CNN1D_CF (out_dim=%d)", out_dim)
-        return CNN1D_CF(in_channels=N_CHANNELS, out_dim=out_dim, extra_dim=1).to(device)
-    else:
-        LOG.info("Model: ResTCN_CF (out_dim=%d)", out_dim)
-        return ResTCN_CF(in_channels=N_CHANNELS, out_dim=out_dim, extra_dim=1).to(device)
+    LOG.info("Model: CNN1D_CF (out_dim=%d)", out_dim)
+    return CNN1D_CF(in_channels=N_CHANNELS, out_dim=out_dim, extra_dim=1).to(device)
     
 
 def load_model(model, checkpoint_path, device):

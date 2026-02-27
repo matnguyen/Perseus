@@ -386,7 +386,7 @@ if __name__ == '__main__':
                         help='Resample time to this length for shards (0 = pad to shard max)')
     parser.add_argument('--to-dtype', choices=['float32','float16','bfloat16'], default='float32',
                         help='Stored dtype for shard tensor')
-    parser.add_argument('--min-tax-kmers', type=int, default=10,
+    parser.add_argument('--min-tax-kmers', type=int, default=0,
                         help='Minimum k-mers assigned to a taxon for it to be considered')
     parser.add_argument('--threads', type=int, default=0, help='Number of worker processes (0=auto)')
     
