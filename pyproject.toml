@@ -20,7 +20,7 @@ dependencies = [
   "ete3",
   "pyarrow",
   "alive-progress",
-  "cgi-legacy",
+  "legacy-cgi",
 ]
 
 [project.scripts]

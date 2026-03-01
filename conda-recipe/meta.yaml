@@ -1,0 +1,31 @@
+package:
+  name: perseus
+  version: 0.1.0
+
+source:
+  path: ..
+
+build:
+  noarch: python
+  script: "{{ PYTHON }} -m pip install . -vv"
+
+requirements:
+  host:
+    - python >=3.10
+    - pip
+    - setuptools
+  run:
+    - python >=3.10
+    - numpy
+    - pandas
+    - pytorch
+    - scikit-learn
+    - ete3
+    - pyarrow
+
+test:
+  commands:
+    - perseus -h
+
+about:
+  summary: "Perseus: Lineage-aware Kraken2 refinement for long-read metagenomics"
