@@ -35,7 +35,7 @@ def test_remap_rank_index_to7_found():
     rank_names = ["superkingdom", "phylum", "class", "order", "family", "genus", "species"]
     idx = m.remap_rank_index_to7(2, rank_names)
     assert idx == 2
-    
+
 
 def test_remap_rank_index_to7_found_sub_super():
     m = importlib.import_module(MODULE)

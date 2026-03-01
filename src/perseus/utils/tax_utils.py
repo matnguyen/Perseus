@@ -32,7 +32,7 @@ def canonicalize_rank(rank):
     match = re.match(r'^(super|sub|infra|parv)?(domain|superkingdom|kingdom|phylum|class|order|family|genus|species|strain)$', rank)
     if match:
         canonical = match.group(2)
-        return 'superkingdom' if canonical == 'kingdom' or 'domain' else canonical
+        return 'superkingdom' if canonical == 'kingdom' or canonical == 'domain' else canonical
     return None
 
 

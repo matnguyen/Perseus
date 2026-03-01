@@ -84,7 +84,7 @@ class ShardedCFTorchDataset(Dataset):
             # expensive fallback
             self.sizes = []
             for sp in self.paths:
-                m = torch.load(sp, map_location="cpu")
+                m = torch.load(sp, map_location="cpu", weights_only=False)
                 n = int(m["x"].shape[0]) if "x" in m else len(m["x_list"])
                 self.sizes.append(n)
                 del m
@@ -136,7 +136,7 @@ class ShardedCFTorchDataset(Dataset):
             return self._allowed[si]
 
         mask_path = self.split_dir / f"valmask_{si:06d}.pt"
-        valmask = torch.load(mask_path, map_location="cpu")
+        valmask = torch.load(mask_path, map_location="cpu", weights_only=False)
 
         mask = valmask if self.split == "val" else ~valmask
         idx = torch.nonzero(mask, as_tuple=False).view(-1).to(torch.int32).cpu().numpy()
@@ -178,7 +178,7 @@ class ShardedCFTorchDataset(Dataset):
         if si in self._cache:
             self._cache.move_to_end(si)
             return self._cache[si]
-        m = torch.load(self.paths[si], map_location="cpu")
+        m = torch.load(self.paths[si], map_location="cpu", weights_only=False)
         if self.downcast_cache_dtype == "float16":
             if "x" in m and isinstance(m["x"], torch.Tensor) and m["x"].dtype == torch.float32:
                 m["x"] = m["x"].half()
