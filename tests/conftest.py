@@ -2,7 +2,7 @@ import importlib
 import pytest
 
 # Path to module under test
-MODULE = "perseus.extract"  
+MODULE = "perseus.commands.extract"  
 NCBI_MODULE = "perseus.utils.tax_utils"
 GLOBALS_MODULE = "perseus.utils.globals"
 CONSTANTS_MODULE = "perseus.utils.constants"
