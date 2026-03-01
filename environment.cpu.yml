@@ -1,0 +1,19 @@
+name: perseus
+channels:
+  - pytorch
+  - conda-forge
+dependencies:
+  - python>=3.10,<3.14
+  - pip
+  - numpy
+  - pandas
+  - scipy
+  - scikit-learn
+  - pyarrow
+  - matplotlib
+  - ete3
+  - pytorch  
+  - pytest   
+  - pip:
+      - alive-progress
+      - legacy-cgi
