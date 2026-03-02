@@ -22,8 +22,11 @@ requirements:
     - scikit-learn
     - ete3
     - pyarrow
+    - pytest
 
 test:
+  requires:
+    - pytest
   commands:
     - perseus -h
 
