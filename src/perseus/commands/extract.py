@@ -382,7 +382,7 @@ if __name__ == '__main__':
     parser.add_argument('--rows-per-chunk', type=int, default=20000, help='Rows per DataFrame chunk for pools')
     parser.add_argument('--max-bins-per-seq', type=int, default=None, help='Max bins per (seq_id, taxon) (default: None)')
     parser.add_argument('--shard-size', type=int, default=4096, help='Samples per shard (.pt)')
-    parser.add_argument('--target-length', type=int, default=1024,
+    parser.add_argument('--target-length', type=int, default=0,
                         help='Resample time to this length for shards (0 = pad to shard max)')
     parser.add_argument('--to-dtype', choices=['float32','float16','bfloat16'], default='float32',
                         help='Stored dtype for shard tensor')

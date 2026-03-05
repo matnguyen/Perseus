@@ -89,11 +89,9 @@ Examples:
                                 help='Rows per DataFrame chunk for pools')
     extract_parser.add_argument('--max-bins-per-seq', type=int, default=None,
                                 help='Max bins per (seq_id, taxon) (default: None)')
-    extract_parser.add_argument('--format', choices=['parquet','shards'], default='parquet',
-                                help='Output format: parquet or shards (.pt)')
     extract_parser.add_argument('--shard-size', type=int, default=4096,
                                 help='Samples per shard (.pt)')
-    extract_parser.add_argument('--target-length', type=int, default=1024,
+    extract_parser.add_argument('--target-length', type=int, default=0,
                                 help='Resample time to this length for shards (0 = pad to shard max)')
     extract_parser.add_argument('--to-dtype', choices=['float32','float16','bfloat16'],
                                 default='float32', help='Stored dtype for shard tensor')
