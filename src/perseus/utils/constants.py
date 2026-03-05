@@ -3,3 +3,4 @@ RANK_INDEX = {r: i for i, r in enumerate(CANONICAL_RANKS)}
 NUM_RANKS = len(CANONICAL_RANKS)
 N_CHANNELS = 22
 CROP_MAX_T = 4096
+DEFAULT_MODEL_FILE = "trained_weights.pt"

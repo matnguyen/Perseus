@@ -1,12 +1,14 @@
+from importlib import resources
 import torch
 import logging
 
 from perseus.models.cnn import CNN1D_CF
 from perseus.utils.constants import N_CHANNELS
+from perseus.utils.constants import DEFAULT_MODEL_FILE
 
 LOG = logging.getLogger(__name__)
 
-def make_model(args, out_dim, device):
+def make_model(out_dim, device):
     """
     Instantiate and return the selected model architecture.
 
@@ -18,6 +20,24 @@ def make_model(args, out_dim, device):
     """
     LOG.info("Model: CNN1D_CF (out_dim=%d)", out_dim)
     return CNN1D_CF(in_channels=N_CHANNELS, out_dim=out_dim, extra_dim=1).to(device)
+
+def load_default_model(out_dim, device):
+    """
+    Load the default model architecture with pretrained weights.
+
+    Args:
+        device (torch.device): The device to load the model onto.
+
+    Returns:
+        torch.nn.Module: The loaded model with pretrained weights.
+    """
+    model = make_model(out_dim, device)
+    
+    # Locate packaged model file
+    model_file = resources.files("perseus.models") / DEFAULT_MODEL_FILE
+    
+    with resources.as_file(model_file) as checkpoint_path:
+        return load_model(model, checkpoint_path, device)
     
 
 def load_model(model, checkpoint_path, device):

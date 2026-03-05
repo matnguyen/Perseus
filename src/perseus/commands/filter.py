@@ -12,7 +12,8 @@ from perseus.data.dataset import build_loader
 from perseus.utils.filter_utils import select_one_row_per_seq
 from perseus.models.initialize import (
     make_model,
-    load_model
+    load_model,
+    load_default_model
 )
 
 ncbi = NCBITaxa()
@@ -41,8 +42,6 @@ if __name__ == "__main__":
                         help="Path to the input manifest file containing sequences to filter.")
     parser.add_argument("--input-kraken", type=str, required=True,
                         help="Path to the Kraken output file to be filtered.")
-    parser.add_argument("--model-path", type=str, required=True,
-                        help="Path to the trained perseus model file.")
     parser.add_argument("--batch-size", type=int, default=128,
                         help="Batch size for processing sequences.")
     parser.add_argument("--output-path", type=str, required=True,
@@ -56,6 +55,8 @@ if __name__ == "__main__":
     parser.add_argument("--seed", type=int, default=667, help="Random seed for reproducibility")
     parser.add_argument("--select-one-per-seq", action="store_true", 
                         help="Select one row per sequence ID from Kraken output using model probabilities")
+    parser.add_argument("--model-path", type=str,
+                            help="Path to the trained perseus model file.")
     
     args = parser.parse_args()
     
@@ -64,8 +65,11 @@ if __name__ == "__main__":
     
     # Load model
     out_dim = len(CANONICAL_RANKS)
-    model = make_model(args, out_dim, device)
-    model = load_model(model, args.model_path, device)
+    if os.path.isfile(args.model_path):
+        model = load_default_model(out_dim, device=device)
+    else:
+        model = make_model(out_dim, device)
+        model = load_model(model, args.model_path, device)
     logging.info("Model loaded successfully.")
     
     # Build data loader
