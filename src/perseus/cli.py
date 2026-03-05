@@ -68,8 +68,8 @@ Examples:
                                help='Directory containing train/val splits (if applicable)')
     filter_parser.add_argument("--seed", type=int, default=667,
                                help="Random seed for reproducibility")
-    filter_parser.add_argument("--select-one-per-seq", action="store_true",
-                               help="Select one row per sequence ID from Kraken output using model probabilities")
+    filter_parser.add_argument("--output-all", action="store_true", 
+                        help="Output all model probabilities for each rank instead of just the predicted taxid.")
     filter_parser.add_argument("--model-path", type=str,
                                help="Path to the trained perseus model file.")
     
