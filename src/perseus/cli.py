@@ -50,8 +50,6 @@ Examples:
                                help="Path to the input manifest file containing sequences to filter.")
     filter_parser.add_argument("--input-kraken", type=str, required=True,
                                help="Path to the Kraken output file to be filtered.")
-    filter_parser.add_argument("--model-path", type=str, required=True,
-                               help="Path to the trained perseus model file.")
     filter_parser.add_argument("--batch-size", type=int, default=128,
                                help="Batch size for processing sequences.")
     filter_parser.add_argument("--output-path", type=str, required=True,
@@ -72,8 +70,8 @@ Examples:
                                help="Random seed for reproducibility")
     filter_parser.add_argument("--select-one-per-seq", action="store_true",
                                help="Select one row per sequence ID from Kraken output using model probabilities")
-    filter_parser.add_argument("--model", choices=["cnn","restcn"], default="cnn",
-                               help="Model architecture")
+    filter_parser.add_argument("--model-path", type=str,
+                               help="Path to the trained perseus model file.")
     
     # ==================== EXTRACT SUBCOMMAND ====================
     extract_parser = subparsers.add_parser(
