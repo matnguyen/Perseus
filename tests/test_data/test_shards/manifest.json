@@ -1,0 +1,21 @@
+{
+  "source": "test_kraken.txt",
+  "outputs": [
+    "/scratch4/mschatz1/mnguyen/taxoncnn/tests/test_data/test_shards/part-p2259884-000001.pt"
+  ],
+  "channels": 22,
+  "target_length": 0,
+  "dtype": "float32",
+  "shard_size": 4096,
+  "topk_taxa": null,
+  "min_tax_kmers": 0,
+  "neg_extra": null,
+  "counts": {
+    "approx_rows": 136,
+    "files": 1
+  },
+  "labels": {
+    "labels_per_rank": "length 7; equality per canonical rank",
+    "rank_index": "index in CANONICAL_RANKS: ['superkingdom', 'phylum', 'class', 'order', 'family', 'genus', 'species']"
+  }
+}

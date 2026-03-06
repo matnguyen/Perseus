@@ -4,7 +4,7 @@
 
 Perseus is a post-processing framework for **refining Kraken2 taxonomic classifications**, with a focus on **long-read metagenomics** (PacBio HiFi, ONT). While Kraken2’s exact k-mer matching enables fast and sensitive classification, it can produce **overconfident fine-rank calls** when evidence is sparse, conserved, or partially novel. Perseus addresses this limitation by **distinguishing trustworthy from spurious taxonomic predictions** using structured k-mer evidence already present in the Kraken2 output. Perseus is designed to reduce false positive fine-rank calls arising from conserved regions, sparse k-mer support, and reference database incompleteness—failure modes that are common in long-read and high-novelty metagenomes.
 
-Perseus assigns **confidence probabilities** to each Kraken2 classification at **every canonical taxonomic rank**, enabling informed decisions to **confirm assignments, back off to higher, lineage-consistent ranks, or convert predictions to unclassified**. 
+Perseus assigns **confidence probabilities** to each Kraken2 classification at **every canonical taxonomic rank**, enabling informed decisions to **confirm assignments, back off to higher, lineage-consistent ranks, or convert predictions to unclassified**.
 
 Perseus is built on a multi-headed 1D convolutional neural network that operates directly on features derived from Kraken2 output. The workflow constructs a lineage-aware feature matrix from a standard Kraken2 output file, then performs inference to produce a Kraken2-compatible output augmented with per-rank confidence probabilities for each assignment. Perseus operates strictly as a downstream confidence filter and does not perform reclassification, alignment, or novel taxon discovery.
 
@@ -14,10 +14,42 @@ Perseus is built on a multi-headed 1D convolutional neural network that operates
 
 ### Conda installation (recommended)
 
-### pip installation
+Perseus is available through conda. We recommend creating a new environment:
 
-### Docker/Singularity
+```bash
+conda create -n perseus -c matnguyen -c conda-forge -c pytorch perseus
+conda activate perseus
+```
 
-### Build from scratch
+## Getting started
 
-## Quick start
+### Feature extraction
+
+Perseus will perform feature extraction on a Kraken2 output file and output a directory of sharded parquets containing the features.
+
+`perseus extract <kraken_file> <output_shards_directory>`
+
+### Filtering
+
+Perseus takes in the directory of sharded parquets and the Kraken2 output file for filtering.
+
+`perseus filter <shards_directory> <kraken_file> <output_path>`
+
+The output file will be similar to the Kraken2 output file, but without the string of k-mer matches, and with the following additional columns:
+
+1. perseus_taxid - the taxonomic ID assigned by Perseus
+2. prob_{rank} - the assignment probability at a canonical {rank}
+3. chosen_rank - the final chosen rank assigned by Perseus
+4. chosen_prob_at_rank - the probability at the final chosen rank
+
+## Testing Data
+
+We provide some data for testing Perseus. They can be found under `tests/test_data`. The Kraken2 output file is `tests/test_data/test_kraken`, the shards are in `tests/test_data/test_shards`, and the expected Perseus output file is `tests/test_data/filtered.txt`.
+
+## Citing Perseus
+
+Our preprint can be found here: 
+
+## Data Generation Scripts
+
+Scripts for generating the inclusion/exclusion simulated data are found here: [https://github.com/matnguyen/perseus-scripts](https://github.com/matnguyen/perseus-scripts)
