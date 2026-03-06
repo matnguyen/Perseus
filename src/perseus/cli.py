@@ -29,12 +29,12 @@ def main():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  # Filter Kraken output using a trained model
-  perseus filter --input-shards shards/ --input-kraken raw.txt --model-path model.pt --output-path filtered.txt
-  
-  # Extract features for inference
-  perseus extract kraken_output.txt features/ --format shards
-        """
+    # Extract features for inference
+    perseus extract <kraken_file> <output_shards_directory>
+    
+    # Filter Kraken output using pre-trained model
+    perseus filter <shards_directory> <kraken_file> <output_path>
+    """
     )
     
     subparsers = parser.add_subparsers(dest='command', help='Available commands')
@@ -76,8 +76,8 @@ Examples:
     # ==================== EXTRACT SUBCOMMAND ====================
     extract_parser = subparsers.add_parser(
         'extract',
-        help='Extract features from Kraken output (inference mode)',
-        description='Stream Kraken output and extract per-(seq,taxon) features for inference.'
+        help='Extract features from Kraken output',
+        description='Stream Kraken output and extract features for inference.'
     )
     extract_parser.add_argument('file_path', type=str,
                                 help='Path to the Kraken output file')
