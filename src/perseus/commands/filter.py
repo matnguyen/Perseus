@@ -3,6 +3,7 @@ import argparse
 import logging
 import torch
 import pickle
+import glob
 import pandas as pd
 from alive_progress import alive_bar
 from ete3 import NCBITaxa
@@ -38,14 +39,14 @@ if __name__ == "__main__":
                         datefmt='%Y-%m-%d %H:%M:%S')
     
     parser = argparse.ArgumentParser(description="Filter Kraken outputs using a trained perseus model.")
-    parser.add_argument("--input-shards", type=str, required=True,
-                        help="Path to the input manifest file containing sequences to filter.")
-    parser.add_argument("--input-kraken", type=str, required=True,
+    parser.add_argument("input_shards", type=str, 
+                        help="Path to directory containing shard files; will search for 'manifest.json' manifest file.")
+    parser.add_argument("input_kraken", type=str, 
                         help="Path to the Kraken output file to be filtered.")
+    parser.add_argument("output_path", type=str, 
+                        help="Path to save the filtered Kraken output.")
     parser.add_argument("--batch-size", type=int, default=128,
                         help="Batch size for processing sequences.")
-    parser.add_argument("--output-path", type=str, required=True,
-                        help="Path to save the filtered Kraken output.")
     parser.add_argument("--cache-shards", type=int, default=1, help="Shards kept in RAM per worker")
     parser.add_argument("--downcast", choices=["none","fp16"], default="fp16", help="Downcast shard tensors in cache")
     parser.add_argument("--cpu-float32", action="store_true", help="Cast samples to float32 on CPU before batching")
@@ -65,7 +66,7 @@ if __name__ == "__main__":
     
     # Load model
     out_dim = len(CANONICAL_RANKS)
-    if os.path.isfile(args.model_path):
+    if args.model_path is None:
         model = load_default_model(out_dim, device=device)
     else:
         model = make_model(out_dim, device)
@@ -74,7 +75,14 @@ if __name__ == "__main__":
     
     # Build data loader
     logging.info("Building data loader...")
-    _, data_loader = build_loader(args, args.input_shards, args.batch_size, False, False, rank_filter=None)
+    if not os.path.isdir(args.input_shards):
+        raise SystemExit(f"Input path is not a directory: {args.input_shards}")
+    manifests = glob.glob(os.path.join(args.input_shards, "*manifest*.json"))
+    if not manifests:
+        raise SystemExit(f"No manifest file matching '*manifest*.json' found in {args.input_shards}")
+    manifest_path = manifests[0]
+    logging.info(f"Using manifest: {manifest_path}")
+    _, data_loader = build_loader(args, manifest_path, args.batch_size, False, False, rank_filter=None)
     logging.info("Data loader built successfully.")
 
     rows = []
