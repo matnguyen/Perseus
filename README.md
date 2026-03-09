@@ -48,7 +48,7 @@ We provide some data for testing Perseus. They can be found under `tests/test_da
 
 ## Citing Perseus
 
-Our preprint can be found here: 
+Our preprint can be found here: [https://www.biorxiv.org/content/10.64898/2026.03.06.710148v1](https://www.biorxiv.org/content/10.64898/2026.03.06.710148v1)
 
 ## Data Generation Scripts
 
