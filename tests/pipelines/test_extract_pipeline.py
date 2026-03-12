@@ -2,6 +2,7 @@ import importlib
 from pathlib import Path
 import shutil
 import pickle
+import pytest
 
 MODULE = "perseus.commands.extract"
 
