@@ -47,31 +47,31 @@ Examples:
         description='Filter Kraken outputs using a trained Perseus model.'
     )
     filter_parser.add_argument("input_shards", type=str, 
-                               help="Path to directory containing shard files; will search for 'manifest.json' manifest file.")
+                               help="Path to directory containing shard files")
     filter_parser.add_argument("input_kraken", type=str, 
-                               help="Path to the Kraken output file to be filtered.")
+                               help="Path to Kraken output file to filter")
     filter_parser.add_argument("output_path", type=str, 
-                               help="Path to save the filtered Kraken output.")
+                               help="Path for the output filtered Kraken file")
     filter_parser.add_argument("--batch-size", type=int, default=128,
-                               help="Batch size for processing sequences.")
+                               help=argparse.SUPPRESS)
     filter_parser.add_argument("--cache-shards", type=int, default=1,
-                               help="Shards kept in RAM per worker")
+                               help=argparse.SUPPRESS)
     filter_parser.add_argument("--downcast", choices=["none","fp16"], default="fp16",
-                               help="Downcast shard tensors in cache")
+                               help=argparse.SUPPRESS)
     filter_parser.add_argument("--cpu-float32", action="store_true",
-                               help="Cast samples to float32 on CPU before batching")
+                               help=argparse.SUPPRESS)
     filter_parser.add_argument("--num-workers", type=int, default=4,
-                               help="Number of DataLoader workers")
+                               help=argparse.SUPPRESS)
     filter_parser.add_argument("--calibration-dir", type=str, default=None,
-                               help="Directory containing calibrators")
+                               help=argparse.SUPPRESS)
     filter_parser.add_argument("--split-dir", type=str, default=None,
-                               help='Directory containing train/val splits (if applicable)')
+                               help=argparse.SUPPRESS)
     filter_parser.add_argument("--seed", type=int, default=667,
-                               help="Random seed for reproducibility")
+                               help="Random seed for reproducibility (default: 667)")
     filter_parser.add_argument("--output-all", action="store_true", 
-                        help="Output all model probabilities for each rank instead of just the predicted taxid.")
+                               help="Output all sequences instead of just the most likely taxonomic assignment for each sequence")
     filter_parser.add_argument("--model-path", type=str,
-                               help="Path to the trained perseus model file.")
+                               help=argparse.SUPPRESS)
     
     # ==================== EXTRACT SUBCOMMAND ====================
     extract_parser = subparsers.add_parser(
@@ -84,22 +84,22 @@ Examples:
     extract_parser.add_argument('output_path', type=str,
                                 help='Path to output directory')
     extract_parser.add_argument('--rows-per-chunk', type=int, default=20000,
-                                help='Rows per DataFrame chunk for pools')
+                                help=argparse.SUPPRESS)
     extract_parser.add_argument('--max-bins-per-seq', type=int, default=None,
-                                help='Max bins per (seq_id, taxon) (default: None)')
+                                help=argparse.SUPPRESS)
     extract_parser.add_argument('--shard-size', type=int, default=4096,
-                                help='Samples per shard (.pt)')
+                                help=argparse.SUPPRESS)
     extract_parser.add_argument('--target-length', type=int, default=0,
-                                help='Resample time to this length for shards (0 = pad to shard max)')
+                                help=argparse.SUPPRESS)
     extract_parser.add_argument('--to-dtype', choices=['float32','float16','bfloat16'],
-                                default='float32', help='Stored dtype for shard tensor')
+                                default='float32', help=argparse.SUPPRESS)
     extract_parser.add_argument('--min-tax-kmers', type=int, default=0,
-                                help='Minimum k-mers assigned to a taxon for it to be considered')
+                                help='Minimum number of taxonomic k-mers required to include a sequence in the output (default: 0, i.e. include all sequences)')
     extract_parser.add_argument('--threads', type=int, default=0,
-                                help='Number of worker processes (0=auto)')
+                                help='Number of threads to use for feature extraction (default: number of CPU cores)')
     extract_parser.add_argument('--log-level', default='INFO',
                                 choices=['DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL'],
-                                help='Set the logging level (default: INFO)')
+                                help=argparse.SUPPRESS)
     
     # Parse arguments
     args = parser.parse_args()
