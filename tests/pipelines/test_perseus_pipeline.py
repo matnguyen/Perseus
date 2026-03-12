@@ -4,17 +4,18 @@ from pathlib import Path
 import subprocess
 import sys
 import pandas as pd
-import os
+import pytest
 
 
+@pytest.mark.pipeline
 def test_extract_then_filter_end_to_end(tmp_path):
     repo_root = Path(__file__).resolve().parents[2]
 
-    kraken_file = os.path.join(repo_root, "tests", "test_data", "test_kraken.txt")
-    expected_filtered = os.path.join(repo_root, "tests", "test_data", "filtered.txt")
+    kraken_file = repo_root / "tests" / "test_data" / "test_kraken.txt"
+    expected_filtered = repo_root / "tests" / "test_data" / "filtered.txt"
 
-    extract_out = os.path.join(tmp_path, "extracted_output")
-    filter_out = os.path.join(tmp_path, "filtered_output.txt")
+    extract_out = tmp_path / "extracted_output"
+    filter_out = tmp_path / "filtered_output.txt"
 
     # Run extract
     extract_cmd = [
@@ -23,22 +24,22 @@ def test_extract_then_filter_end_to_end(tmp_path):
         str(kraken_file),
         str(extract_out),
     ]
+
     extract_res = subprocess.run(extract_cmd, capture_output=True, text=True)
+
     assert extract_res.returncode == 0, (
         f"extract failed\nSTDOUT:\n{extract_res.stdout}\nSTDERR:\n{extract_res.stderr}"
     )
 
     # Verify extract output exists
-    entries = []
-    extract_out_str = str(extract_out)
-    assert os.path.exists(extract_out_str), f"Extract output directory {extract_out} was not created"
-    if os.path.exists(extract_out_str):
-        entries = os.listdir(extract_out_str)
+    assert extract_out.exists(), f"Extract output directory {extract_out} was not created"
 
-    manifests = [os.path.join(extract_out_str, f) for f in entries if "manifest" in f and f.endswith(".json")]
+    entries = list(extract_out.iterdir())
+
+    manifests = [p for p in entries if "manifest" in p.name and p.suffix == ".json"]
     assert manifests, f"No manifest found in {extract_out}"
 
-    shard_files = [os.path.join(extract_out_str, f) for f in entries if f.endswith(".pt")]
+    shard_files = [p for p in entries if p.suffix == ".pt"]
     assert shard_files, f"No shard files found in {extract_out}"
 
     # Run filter
@@ -49,12 +50,14 @@ def test_extract_then_filter_end_to_end(tmp_path):
         str(kraken_file),
         str(filter_out),
     ]
+
     filter_res = subprocess.run(filter_cmd, capture_output=True, text=True)
+
     assert filter_res.returncode == 0, (
         f"filter failed\nSTDOUT:\n{filter_res.stdout}\nSTDERR:\n{filter_res.stderr}"
     )
 
-    assert os.path.exists(filter_out), f"Filter output file {filter_out} was not created"
+    assert filter_out.exists(), f"Filter output file {filter_out} was not created"
 
     # Compare to ground truth output
     got = pd.read_csv(filter_out, sep="\t")

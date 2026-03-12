@@ -5,9 +5,7 @@ import pickle
 
 MODULE = "perseus.commands.extract"
 
-"""
-Tests for build_tax_context
-"""
+@pytest.mark.pipeline
 def test_build_tax_context_small(monkeypatch, tmp_path):   
     def fake_copyfile(src, dst, *args, **kwargs):
         dst_path = Path(dst)

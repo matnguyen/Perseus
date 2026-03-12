@@ -33,34 +33,7 @@ def get_lineage(taxid):
         lineage = []
     return lineage
 
-if __name__ == "__main__":
-    logging.basicConfig(level=logging.INFO,
-                        format='[%(asctime)s] %(levelname)s - %(message)s',
-                        datefmt='%Y-%m-%d %H:%M:%S')
-    
-    parser = argparse.ArgumentParser(description="Filter Kraken outputs using a trained perseus model.")
-    parser.add_argument("input_shards", type=str, 
-                        help="Path to directory containing shard files; will search for 'manifest.json' manifest file.")
-    parser.add_argument("input_kraken", type=str, 
-                        help="Path to the Kraken output file to be filtered.")
-    parser.add_argument("output_path", type=str, 
-                        help="Path to save the filtered Kraken output.")
-    parser.add_argument("--batch-size", type=int, default=128,
-                        help="Batch size for processing sequences.")
-    parser.add_argument("--cache-shards", type=int, default=1, help="Shards kept in RAM per worker")
-    parser.add_argument("--downcast", choices=["none","fp16"], default="fp16", help="Downcast shard tensors in cache")
-    parser.add_argument("--cpu-float32", action="store_true", help="Cast samples to float32 on CPU before batching")
-    parser.add_argument("--num-workers", type=int, default=4, help="Number of DataLoader workers")
-    parser.add_argument("--split-dir", type=str, default=None, 
-                        help='Directory containing train/val splits (if applicable)')
-    parser.add_argument("--seed", type=int, default=667, help="Random seed for reproducibility")
-    parser.add_argument("--output-all", action="store_true", 
-                        help="Output all model probabilities for each rank instead of just the predicted taxid.")
-    parser.add_argument("--model-path", type=str,
-                            help="Path to the trained perseus model file.")
-    
-    args = parser.parse_args()
-    
+def run_filter(args):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     logging.info(f"Using device: {device}")
     
@@ -123,7 +96,7 @@ if __name__ == "__main__":
     merged_df.drop(columns=["probs_per_rank"], inplace=True)
     if args.output_all:
         full_output_path = args.output_path.replace(".tsv", "full.tsv")
-        merged_df.to_csv(args.output_path, sep="\t", index=False)
+        merged_df.to_csv(args.full_output_path, sep="\t", index=False)
         logging.info(f"Full filtered Kraken output saved to {args.output_path}.")
     
     merged_df['perseus_taxid'] = merged_df['perseus_taxid'].fillna(0)
@@ -170,4 +143,36 @@ if __name__ == "__main__":
     filtered_output_path = args.output_path
     filtered_df.to_csv(filtered_output_path, sep="\t", index=False)
     logging.info(f"Filtered output saved to {filtered_output_path}.")
+    
+    return filtered_df
+
+if __name__ == "__main__":
+    logging.basicConfig(level=logging.INFO,
+                        format='[%(asctime)s] %(levelname)s - %(message)s',
+                        datefmt='%Y-%m-%d %H:%M:%S')
+    
+    parser = argparse.ArgumentParser(description="Filter Kraken outputs using a trained perseus model.")
+    parser.add_argument("input_shards", type=str, 
+                        help="Path to directory containing shard files; will search for 'manifest.json' manifest file.")
+    parser.add_argument("input_kraken", type=str, 
+                        help="Path to the Kraken output file to be filtered.")
+    parser.add_argument("output_path", type=str, 
+                        help="Path to save the filtered Kraken output.")
+    parser.add_argument("--batch-size", type=int, default=128,
+                        help="Batch size for processing sequences.")
+    parser.add_argument("--cache-shards", type=int, default=1, help="Shards kept in RAM per worker")
+    parser.add_argument("--downcast", choices=["none","fp16"], default="fp16", help="Downcast shard tensors in cache")
+    parser.add_argument("--cpu-float32", action="store_true", help="Cast samples to float32 on CPU before batching")
+    parser.add_argument("--num-workers", type=int, default=4, help="Number of DataLoader workers")
+    parser.add_argument("--split-dir", type=str, default=None, 
+                        help='Directory containing train/val splits (if applicable)')
+    parser.add_argument("--seed", type=int, default=667, help="Random seed for reproducibility")
+    parser.add_argument("--output-all", action="store_true", 
+                        help="Output all model probabilities for each rank instead of just the predicted taxid.")
+    parser.add_argument("--model-path", type=str,
+                            help="Path to the trained perseus model file.")
+    
+    args = parser.parse_args()
+    
+    run_filter(args)
     
