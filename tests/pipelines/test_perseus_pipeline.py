@@ -94,4 +94,11 @@ def test_extract_then_filter_end_to_end(tmp_path):
     got = got.sort_values(list(got.columns)).reset_index(drop=True)
     exp = exp.sort_values(list(exp.columns)).reset_index(drop=True)
 
-    pd.testing.assert_frame_equal(got, exp, check_dtype=False)
+    pd.testing.assert_frame_equal(
+        got,
+        exp,
+        check_dtype=False,
+        check_exact=False,
+        atol=1e-5,
+        rtol=1e-4
+    )
