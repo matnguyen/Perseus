@@ -62,6 +62,7 @@ This should produce an output file `example_filtered.txt`.
 Because Perseus uses floating-point operations (PyTorch), small numerical differences may occur across platforms. Therefore, the output may not match the reference file exactly with a simple `diff`.
 
 To compare the output with the expected results using a numerical tolerance:
+
 `python scripts/compare_outputs.py example_filtered.txt tests/test_data/filtered.txt`
 
 ### Running the Full Test Suite (optional)
@@ -69,6 +70,7 @@ To compare the output with the expected results using a numerical tolerance:
 For a full reproducibility check, run the included test suite.
 
 Install the testing dependency:
+
 `pip install pytest`
 
 Then run:
