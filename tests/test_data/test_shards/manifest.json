@@ -1,7 +1,7 @@
 {
   "source": "test_kraken.txt",
   "outputs": [
-    "/scratch4/mschatz1/mnguyen/taxoncnn/tests/test_data/test_shards/part-p2315892-000001.pt"
+    "part-p4040034-000001.pt"
   ],
   "channels": 22,
   "target_length": 0,
