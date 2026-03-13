@@ -44,6 +44,7 @@ def run_filter(args):
     else:
         model = make_model(out_dim, device)
         model = load_model(model, args.model_path, device)
+    model.eval()
     logging.info("Model loaded successfully.")
     
     # Build data loader
@@ -95,8 +96,9 @@ def run_filter(args):
     
     merged_df.drop(columns=["probs_per_rank"], inplace=True)
     if args.output_all:
-        full_output_path = args.output_path.replace(".tsv", "full.tsv")
-        merged_df.to_csv(args.full_output_path, sep="\t", index=False)
+        base, ext = os.path.splitext(args.output_path)
+        full_output_path = f"{base}.full{ext}"
+        merged_df.to_csv(full_output_path, sep="\t", index=False, float_format="%.6f")
         logging.info(f"Full filtered Kraken output saved to {args.output_path}.")
     
     merged_df['perseus_taxid'] = merged_df['perseus_taxid'].fillna(0)
@@ -141,7 +143,7 @@ def run_filter(args):
         tie_breaker="sum_to_rank",
     )
     filtered_output_path = args.output_path
-    filtered_df.to_csv(filtered_output_path, sep="\t", index=False)
+    filtered_df.to_csv(filtered_output_path, sep="\t", index=False, float_format="%.6f")
     logging.info(f"Filtered output saved to {filtered_output_path}.")
     
     return filtered_df
