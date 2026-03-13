@@ -46,6 +46,37 @@ The output file will be similar to the Kraken2 output file, but without the stri
 
 We provide some data for testing Perseus. They can be found under `tests/test_data`. The Kraken2 output file is `tests/test_data/test_kraken`, the shards are in `tests/test_data/test_shards`, and the expected Perseus output file is `tests/test_data/filtered.txt`.
 
+## Testing the Installation
+
+### Quick Example
+
+Run Perseus on the included test data:
+
+```bash
+perseus extract tests/test_data/test_kraken.txt example_extract
+perseus filter example_extract tests/test_data/test_kraken.txt example_filtered.txt
+```
+
+This should produce an output file `example_filtered.txt`.
+
+Because Perseus uses floating-point operations (PyTorch), small numerical differences may occur across platforms. Therefore, the output may not match the reference file exactly with a simple `diff`.
+
+To compare the output with the expected results using a numerical tolerance:
+`python scripts/compare_outputs.py example_filtered.txt tests/test_data/filtered.txt`
+
+### Running the Full Test Suite (optional)
+
+For a full reproducibility check, run the included test suite.
+
+Install the testing dependency:
+`pip install pytest`
+
+Then run:
+
+`pytest -q`
+
+This runs unit tests and end-to-end pipeline tests used during development.
+
 ## Citing Perseus
 
 Our preprint can be found here: [https://www.biorxiv.org/content/10.64898/2026.03.06.710148v1](https://www.biorxiv.org/content/10.64898/2026.03.06.710148v1)
