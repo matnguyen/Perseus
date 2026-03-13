@@ -5,7 +5,7 @@ import subprocess
 import sys
 import pandas as pd
 import pytest
-
+import torch
 
 @pytest.mark.pipeline
 def test_extract_then_filter_end_to_end(tmp_path):
@@ -41,6 +41,33 @@ def test_extract_then_filter_end_to_end(tmp_path):
 
     shard_files = [p for p in entries if p.suffix == ".pt"]
     assert shard_files, f"No shard files found in {extract_out}"
+    
+    # Check if shard file matches the one in test_data
+    expected_shard = repo_root / "tests" / "test_data" / "test_shards" / "part-p4040034-000001.pt"
+
+    assert len(shard_files) == 1, f"Expected 1 shard file, found {len(shard_files)}"
+
+    expected_data = torch.load(expected_shard, map_location="cpu")
+    observed_data = torch.load(shard_files[0], map_location="cpu")
+
+    # Compare structure
+    assert expected_data.keys() == observed_data.keys(), "Shard keys differ"
+
+    for key in expected_data:
+        e = expected_data[key]
+        o = observed_data[key]
+
+        if isinstance(e, torch.Tensor):
+            assert e.shape == o.shape, f"Shape mismatch for {key}: {e.shape} != {o.shape}"
+            assert e.dtype == o.dtype, f"Dtype mismatch for {key}: {e.dtype} != {o.dtype}"
+
+            if e.dtype.is_floating_point:
+                assert torch.allclose(e, o, atol=1e-6), f"Tensor values differ for {key}"
+            else:
+                assert torch.equal(e, o), f"Tensor values differ for {key}"
+
+        else:
+            assert e == o, f"Value mismatch for {key}: {e} != {o}"
 
     # Run filter
     filter_cmd = [

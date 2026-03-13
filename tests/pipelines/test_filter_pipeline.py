@@ -8,7 +8,6 @@ import pytest
 
 from perseus.commands import filter as m
 
-
 class DummyModel:
     def __call__(self, x, mask=None, extra=None):
         batch_size = x.shape[0]
@@ -18,8 +17,6 @@ class DummyModel:
 
     def eval(self):
         return self
-
-
 class DummyBar:
     def __init__(self, *args, **kwargs):
         pass

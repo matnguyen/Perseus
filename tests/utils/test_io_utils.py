@@ -98,7 +98,7 @@ def test_write_rows_streaming_shards_pad_to_max(tmp_outdir, monkeypatch):
 
     # manifest list updated
     assert len(globals_mod._shared_manifest_paths) == 1
-    assert str(path) in globals_mod._shared_manifest_paths[0] or str(path) == globals_mod._shared_manifest_paths[0]
+    assert path.name in globals_mod._shared_manifest_paths[0] or path.name == globals_mod._shared_manifest_paths[0]
 
 
 def test_write_rows_streaming_shards_resample(tmp_outdir, monkeypatch):
