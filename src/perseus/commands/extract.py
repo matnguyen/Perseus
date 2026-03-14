@@ -1,29 +1,15 @@
 #!/usr/bin/env python3
-"""
-extract.py
-====================================================
-
-Stream Kraken output, produce per-(seq,taxon) 28-channel bin features,
-and write either nested Parquet parts 
-
-Usage (CLI):
-    python extract.py <input> <output>
-"""
-
 import os
 import pandas as pd
 import argparse as ap
 import logging
 import multiprocessing as mp
 from alive_progress import alive_bar
-import pickle
 import pyarrow.parquet as pq
-from pathlib import Path
 import gc
 import glob
 import json
 from ete3 import NCBITaxa
-import importlib
 import shutil
 
 import perseus.utils.globals as globals_mod
@@ -48,13 +34,12 @@ os.environ.setdefault("OPENBLAS_NUM_THREADS", "1")
 os.environ.setdefault("MKL_NUM_THREADS", "1")
 os.environ.setdefault("NUMEXPR_NUM_THREADS", "1")
 
-logger = logging.getLogger(__name__)
-
+LOG = logging.getLogger(__name__)
 
 def read_kraken_file(
         file_path,
         output_path, 
-        chunksize=5000, 
+        rows_per_chunk=5000, 
         threads=0, 
         max_bins_per_seq=None,
         shard_size=4096, 
@@ -62,24 +47,12 @@ def read_kraken_file(
         to_dtype="float32",
         min_tax_kmers=10
     ):
-    """
-    Stream Kraken output, produce per-(seq, taxon) 28-channel bin features,
-    and write either nested Parquet parts 
-
-    Args:
-        file_path (str): Path to the Kraken output file.
-        output_path (str): Path to save the processed output (directory or .parquet file)
-        chunksize (int, optional): Number of rows per DataFrame chunk for pools. Defaults to 5000
-        threads (int, optional): Number of worker processes (0=auto, 1=single-threaded). Defaults to 0
-        max_bins_per_seq (int or None, optional): Max bins per (seq_id, taxon). Defaults to None
-        shard_size (int, optional): Samples per shard (.pt). Defaults to 4096
-        target_length (int, optional): Resample time to this length for shards (0 = pad to shard max). Defaults to 1024
-        to_dtype (str, optional): Stored dtype for shard tensor. Defaults to "float32"
-
-    Returns:
-        None
-    """
-    logger.debug(f"Starting read_kraken_file with file_path={file_path}, output_path={output_path}, chunksize={chunksize}")
+    LOG.info("Starting feature extraction...")
+    LOG.info("Input file: %s", file_path)
+    LOG.info("Output directory: %s", output_path)
+    LOG.info("Threads: %d", threads if threads > 0 else effective_nprocs())
+    LOG.info("Minimum k-mers per taxon: %d", min_tax_kmers)
+    LOG.debug("Starting read_kraken_file with file_path=%s, output_path=%s, rows_per_chunk=%d", file_path, output_path, rows_per_chunk)
     
     # Set vars needed only for training
     mess_true_file = None
@@ -88,96 +61,66 @@ def read_kraken_file(
     neg_extra = None
     is_training = False
 
-    # Build/load tax_context
-    tax_context_path = output_path + ".tax_context.pkl"
-    if os.path.exists(tax_context_path):
-        logger.info(f"Loading cached tax_context from {tax_context_path}")
-        with open(tax_context_path, "rb") as f:
-            tax_context = pickle.load(f)
-        logger.debug(f"Loaded tax_context with {len(tax_context)} entries")
-    else:
-        logger.info(f"Building tax_context from {file_path}")
-        tax_context = build_tax_context(file_path, rows_per_chunk=2000, prefetch_buf=64, dispatch_batch=6, threads=threads)
-        with open(tax_context_path, "wb") as f:
-            pickle.dump(tax_context, f, protocol=pickle.HIGHEST_PROTOCOL)
-        logger.info(f"Saved tax_context to {tax_context_path}")
-        logger.debug(f"Built tax_context with {len(tax_context)} entries")
+    # Build tax_context
+    LOG.info("Precomputing sequence → taxid k-mer count map from %s", file_path)
+    tax_context = build_tax_context(file_path, rows_per_chunk=rows_per_chunk, prefetch_buf=64, dispatch_batch=6, threads=threads)
+    LOG.debug("Built taxonomic context: %d sequences with aggregated k-mer taxid counts", len(tax_context))
 
     # Collect all numeric taxids
+    LOG.info("Collecting unique numeric taxids...")
     all_taxids = set()
     for _, counts in tax_context.items():
         for t in counts.keys():
             try:
                 all_taxids.add(normalize_taxid(int(t)))
             except ValueError:
-                logger.debug(f"Skipping non-numeric taxid: {t}")
+                LOG.debug("Skipping non-numeric taxid: %s", t)
                 continue
-    logger.debug(f"Collected {len(all_taxids)} unique numeric taxids")
+    LOG.debug("Collected %d unique numeric taxids", len(all_taxids))
 
-    # Precompute/load lineage/descendant/canonical maps
-    lineage_map_path    = output_path + ".lineage_map.pkl"
-    descendant_map_path = output_path + ".descendant_map.pkl"
-    canonical_map_path  = output_path + ".canonical_map.pkl"
-
-    if os.path.exists(lineage_map_path) and os.path.exists(descendant_map_path) and os.path.exists(canonical_map_path):
-        logger.info("Loading cached lineage/descendant/canonical maps.")
-        with open(lineage_map_path, "rb") as f:
-            lineage_map = pickle.load(f)
-        with open(descendant_map_path, "rb") as f:
-            descendant_map = pickle.load(f)
-        with open(canonical_map_path, "rb") as f:
-            canonical_map = pickle.load(f)
-        logger.debug(f"Loaded lineage_map ({len(lineage_map)}), descendant_map ({len(descendant_map)}), canonical_map ({len(canonical_map)})")
-    else:
-        lineage_map, descendant_map, canonical_map = {}, {}, {}
-        if threads == 0:
-            nprocs = effective_nprocs()
-            logger.info(f"Precomputing maps for {len(all_taxids)} taxids using {nprocs} processes.")
-            with mp.Pool(processes=nprocs, maxtasksperchild=200) as pool:
-                for tid, lineage, descendants, canonicals in pool.imap_unordered(fetch_maps, all_taxids, chunksize=chunksize):
-                    lineage_map[tid]    = lineage
-                    descendant_map[tid] = descendants
-                    canonical_map[tid]  = canonicals
-        elif threads == 1:
-            logger.info(f"Precomputing maps for {len(all_taxids)} taxids using single-threaded mode.")
-            for tid in all_taxids:
-                tid, lineage, descendants, canonicals = fetch_maps(tid)
+    lineage_map, descendant_map, canonical_map = {}, {}, {}
+    if threads == 0:
+        nprocs = effective_nprocs()
+        LOG.info("Precomputing lineage/descendant maps for %d taxids using %d processes", len(all_taxids), nprocs)
+        with mp.Pool(processes=nprocs, maxtasksperchild=200) as pool:
+            for tid, lineage, descendants, canonicals in pool.imap_unordered(fetch_maps, all_taxids, chunksize=rows_per_chunk):
                 lineage_map[tid]    = lineage
                 descendant_map[tid] = descendants
                 canonical_map[tid]  = canonicals
-        else:
-            nprocs = threads
-            logger.info(f"Precomputing maps for {len(all_taxids)} taxids using {nprocs} processes (user-specified).")
-            with mp.Pool(processes=nprocs, maxtasksperchild=200) as pool:
-                for tid, lineage, descendants, canonicals in pool.imap_unordered(fetch_maps, all_taxids, chunksize=chunksize):
-                    lineage_map[tid]    = lineage
-                    descendant_map[tid] = descendants
-                    canonical_map[tid]  = canonicals
-
-        with open(lineage_map_path, "wb") as f:
-            pickle.dump(lineage_map, f, protocol=pickle.HIGHEST_PROTOCOL)
-        with open(descendant_map_path, "wb") as f:
-            pickle.dump(descendant_map, f, protocol=pickle.HIGHEST_PROTOCOL)
-        with open(canonical_map_path, "wb") as f:
-            pickle.dump(canonical_map, f, protocol=pickle.HIGHEST_PROTOCOL)
-        logger.info("Saved lineage/descendant/canonical maps.")
-
+    elif threads == 1:
+        LOG.info("Precomputing lineage/descendant maps for %d taxids using single-threaded mode", len(all_taxids))
+        for tid in all_taxids:
+            tid, lineage, descendants, canonicals = fetch_maps(tid)
+            lineage_map[tid]    = lineage
+            descendant_map[tid] = descendants
+            canonical_map[tid]  = canonicals
+    else:
+        nprocs = threads
+        LOG.info("Precomputing lineage/descendant maps for %d taxids using %d processes (user-specified)", len(all_taxids), nprocs)
+        with mp.Pool(processes=nprocs, maxtasksperchild=200) as pool:
+            for tid, lineage, descendants, canonicals in pool.imap_unordered(fetch_maps, all_taxids, chunksize=rows_per_chunk):
+                lineage_map[tid]    = lineage
+                descendant_map[tid] = descendants
+                canonical_map[tid]  = canonicals
+    LOG.info("Completed precomputing taxonomic maps")
+    
     # Process CSV in parallel, writing outputs in workers
-    out_dir = Path(output_path)
+    out_dir = os.path.abspath(output_path)
     out_dir.mkdir(parents=True, exist_ok=True)
-    logger.debug(f"Output directory: {str(out_dir)}")
+    LOG.debug(f"Output directory: {str(out_dir)}")
 
     nprocs = effective_nprocs() if threads == 0 else threads
-    logger.info(f"Processing with {nprocs if threads==0 else threads} workers; writing under {str(out_dir)}")
+    LOG.info(f"Processing with %d workers; writing under %s", nprocs if threads==0 else threads, str(out_dir))
     
     # Count total rows for better chunk size calculation
-    logger.info("Counting rows in input file...")
-    total_rows = sum(1 for _ in open(file_path, 'r'))
-    logger.info(f"Total rows in file: {total_rows:,}")
+    LOG.info("Counting rows in input file...")
+    with open(file_path, "r") as fh:
+        total_rows = sum(1 for _ in fh)
+    LOG.info(f"Total rows in file: %d", total_rows)
     
     # Adjust chunksize based on number of workers 
     adjusted_chunksize = max(total_rows // (nprocs * 10), 2000)
-    logger.debug(f"Adjusted chunksize for reading: {adjusted_chunksize}")
+    LOG.debug("Adjusted chunksize for reading: %d", adjusted_chunksize)
 
     wrote_rows = 0
     wrote_files = 0
@@ -186,6 +129,7 @@ def read_kraken_file(
     manager = mp.Manager()
     manifest_paths = manager.list() 
 
+    LOG.info("Starting chunked processing of Kraken output...")
     with pd.read_csv(
         file_path, sep='\t', header=None,
         names=['Classified', 'ID', 'Taxonomy', 'Length', 'Kmers'],
@@ -254,7 +198,7 @@ def read_kraken_file(
                         bar()
                         gc.collect()
 
-    logger.info(f"Wrote {wrote_files} part files (~{wrote_rows} rows) under {str(out_dir)}")
+    LOG.info(f"Wrote %d part files (~%d rows) under %s", wrote_files, wrote_rows, str(out_dir))
     
     # Write manifest json 
     mani = {
@@ -276,105 +220,9 @@ def read_kraken_file(
     mani_path = out_dir / "manifest.json"
     with open(mani_path, "w") as f:
         json.dump(mani, f, indent=2)
-    logger.info(f"Wrote shard manifest → {mani_path}")
+    LOG.info("Wrote shard manifest → %s", mani_path)
 
-
-def combine_parquet_parts(parts_dir, output_file, pattern="part-*.parquet",
-                          row_group_size=None, compression="zstd",
-                          write_statistics=True, cleanup_parts=False,
-                          sort_files=True):
-    """
-    Combine many small Parquet part files (with nested 'bins') into one file
-
-    Args:
-        parts_dir (str or Path): Directory containing Parquet part files
-        output_file (str or Path): Path to write the combined Parquet file
-        pattern (str, optional): Glob pattern for part files. Defaults to "part-*.parquet"
-        row_group_size (int or None, optional): Row group size for output file. Defaults to None
-        compression (str, optional): Compression algorithm. Defaults to "zstd"
-        write_statistics (bool, optional): Whether to write statistics. Defaults to True
-        cleanup_parts (bool, optional): Whether to remove part files after combining. Defaults to False
-        sort_files (bool, optional): Whether to sort part files before combining. Defaults to True
-
-    Returns:
-        None
-    """
-    parts_dir   = str(parts_dir)
-    output_file = str(output_file)
-
-    pd_path = Path(parts_dir).resolve()
-    of_path = Path(output_file).resolve()
-
-    if (of_path.exists() and of_path.is_dir()) or (of_path == pd_path):
-        of_path = pd_path / "combined.parquet"
-    elif output_file.endswith(os.sep) or output_file.endswith("\\"):
-        of_path = pd_path / "combined.parquet"
-
-    if of_path.suffix.lower() not in (".parquet", ".parq"):
-        if of_path.exists() and of_path.is_dir():
-            of_path = of_path / "combined.parquet"
-
-    files = glob.glob(os.path.join(parts_dir, pattern))
-    if not files:
-        raise FileNotFoundError(f"No Parquet parts matching '{pattern}' in {parts_dir}")
-    if sort_files:
-        files.sort()
-
-    first_pf = pq.ParquetFile(files[0])
-    target_schema = first_pf.schema_arrow
-
-    of_path.parent.mkdir(parents=True, exist_ok=True)
-    logger.info(f"Combining {len(files)} parts from {parts_dir} → {str(of_path)}")
-
-    writer = pq.ParquetWriter(
-        str(of_path),
-        target_schema,
-        compression=compression,
-        use_dictionary=True,
-        write_statistics=write_statistics,
-    )
-
-    wrote_rows = 0
-    try:
-        with alive_bar(len(files), title="Combining Parquet parts") as bar:
-            for path in files:
-                pf = pq.ParquetFile(path)
-                for rg_idx in range(pf.num_row_groups):
-                    tbl = pf.read_row_group(rg_idx)
-                    if not tbl.schema.equals(target_schema, check_metadata=False):
-                        try:
-                            tbl = tbl.cast(target_schema, safe=False)
-                        except Exception as e:
-                            writer.close()
-                            raise TypeError(
-                                f"Schema mismatch reading '{path}' (row-group {rg_idx}).\n"
-                                f"Expected {target_schema}, got {tbl.schema}.\n"
-                                f"Casting error: {e}"
-                            ) from e
-                    writer.write_table(tbl, row_group_size=row_group_size)
-                    wrote_rows += tbl.num_rows
-                bar()
-    finally:
-        writer.close()
-
-    logger.info(f"Wrote {wrote_rows} rows to {str(of_path)}")
-
-    if cleanup_parts:
-        removed = 0
-        for path in files:
-            try:
-                os.remove(path); removed += 1
-            except OSError:
-                pass
-        logger.info(f"Removed {removed}/{len(files)} part files")
-
-
-if __name__ == '__main__':
-    """
-    Command-line interface for chunked and parallel processing of Kraken output with Option-B labeling
-
-    Parses arguments, runs extraction, and optionally combines Parquet parts
-    """
+def main():
     parser = ap.ArgumentParser(description='Chunked and parallel processing of Kraken output with Option-B labeling.')
     parser.add_argument('file_path', type=str, help='Path to the Kraken output file')
     parser.add_argument('output_path', type=str, help='Path to output directory')
@@ -389,26 +237,23 @@ if __name__ == '__main__':
     parser.add_argument('--min-tax-kmers', type=int, default=0,
                         help='Minimum k-mers assigned to a taxon for it to be considered')
     parser.add_argument('--threads', type=int, default=0, help='Number of worker processes (0=auto)')
-    
-    parser.add_argument('--log-level', default='INFO', choices=['DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL'],
-                        help='Set the logging level (default: INFO)')
 
     args = parser.parse_args()
     
     logging.basicConfig(
-        level=args.log_level.upper(),
-        format='%(asctime)s - %(levelname)s - %(message)s'
+        level=logging.INFO,
+        format="%(asctime)s %(message)s",
+        datefmt="%H:%M:%S",
     )
     
     if args.threads == 1:
-        globals_mod = importlib.import_module("perseus.utils.globals")
         globals_mod.NCBI = NCBITaxa() # Pre-initialize for single-threaded mode
 
     # Run extraction
     read_kraken_file(
         args.file_path, 
         args.output_path,
-        chunksize=1000, 
+        rows_per_chunk=args.rows_per_chunk, 
         threads=args.threads, 
         max_bins_per_seq=args.max_bins_per_seq,
         shard_size=args.shard_size,
@@ -421,4 +266,7 @@ if __name__ == '__main__':
     for tmpdir in glob.glob("/tmp/perseus_ete3db_*"):
         if os.path.exists(tmpdir):
             shutil.rmtree(tmpdir)
-            logger.debug(f"Deleted temp dir: {tmpdir}")
+            LOG.debug("Deleted temp dir: %s", tmpdir)
+
+if __name__ == '__main__':
+    main()
