@@ -34,3 +34,8 @@ where = ["src"]
 
 [tool.setuptools.package-data]
 perseus = ["models/*.pt"]
+
+[tool.pytest.ini_options]
+markers = [
+    "pipeline: slower end-to-end pipeline tests"
+]
