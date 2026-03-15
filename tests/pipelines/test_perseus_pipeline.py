@@ -52,6 +52,16 @@ def test_extract_then_filter_end_to_end(tmp_path):
 
     # Compare structure
     assert expected_data.keys() == observed_data.keys(), "Shard keys differ"
+    
+    for key in expected_data:
+        e = expected_data[key]
+        o = observed_data[key]
+
+        if isinstance(e, torch.Tensor):
+            assert e.shape == o.shape, f"Shape mismatch for {key}: {e.shape} != {o.shape}"
+            assert e.dtype == o.dtype, f"Dtype mismatch for {key}: {e.dtype} != {o.dtype}"
+        else:
+            assert type(e) == type(o), f"Type mismatch for {key}"
 
     # Run filter
     filter_cmd = [
