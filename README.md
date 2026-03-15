@@ -1,4 +1,4 @@
-[![Release](https://img.shields.io/github/v/release/matnguyen/perseus)](https://github.com/matnguyen/perseus/releases) [![bioRxiv](https://img.shields.io/badge/bioRxiv-preprint-orange)](https://doi.org/10.64898/2026.03.06.710148) [![License: MIT](https://img.shields.io/badge/license-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Release](https://img.shields.io/github/v/release/matnguyen/perseus)](https://github.com/matnguyen/perseus/releases) [![bioRxiv](https://img.shields.io/badge/bioRxiv-preprint-orange)](https://doi.org/10.64898/2026.03.06.710148) [![License: MIT](https://img.shields.io/badge/license-MIT-yellow.svg)](https://opensource.org/licenses/MIT) [![CI](https://github.com/matnguyen/perseus/actions/workflows/tests.yml/badge.svg)](https://github.com/matnguyen/perseus/actions) [![codecov](https://codecov.io/github/matnguyen/perseus/branch/main/graph/badge.svg)](https://codecov.io/github/matnguyen/perseus)
 
 # **Perseus**: refining Kraken2 taxonomic classifications of long reads and contigs
 
