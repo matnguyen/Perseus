@@ -1,3 +1,5 @@
+[![Release](https://img.shields.io/github/v/release/matnguyen/perseus)](https://github.com/matnguyen/perseus/releases) [![bioRxiv](https://img.shields.io/badge/bioRxiv-preprint-orange)](https://doi.org/10.64898/2026.03.06.710148) [![License: MIT](https://img.shields.io/badge/license-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+
 # **Perseus**: refining Kraken2 taxonomic classifications of long reads and contigs
 
 <img src="img/logo.png" alt="logo" width="250" align="left" style="margin-right: 30px"/> 
