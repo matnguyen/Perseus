@@ -84,7 +84,6 @@ def run_filter(args):
     LOG.info("Data loader built successfully")
     LOG.info("Number of batches: %d", len(data_loader))
     LOG.info("Batch size: %d", args.batch_size)
-    LOG.info("Number of samples: %d", len(data_loader.dataset))
 
     rows = []
 
@@ -101,7 +100,6 @@ def run_filter(args):
                 
                 if batch_idx == 0:
                     LOG.debug("Input dtype after cast: %s", x.dtype)
-                    LOG.debug("Model parameter dtype: %s", next(model.parameters()).dtype)
                     
                 mask = batch["mask"].to(device, non_blocking=True)
                 extra = torch.log1p(batch["lengths"].to(device, non_blocking=True).float()).unsqueeze(1)

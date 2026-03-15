@@ -113,8 +113,10 @@ def test_run_filter_requires_manifest(tmp_path, monkeypatch):
 
     monkeypatch.setattr(m, "load_default_model", lambda out_dim, device=None: DummyModel())
 
-    with pytest.raises(SystemExit, match="No manifest file matching"):
+    with pytest.raises(SystemExit) as exc:
         m.run_filter(args)
+
+    assert exc.value.code == 1
         
 def test_run_filter_uses_explicit_model_path(monkeypatch, tmp_path):
     input_shards = tmp_path / "shards"

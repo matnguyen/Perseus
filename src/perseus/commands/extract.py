@@ -5,12 +5,12 @@ import argparse as ap
 import logging
 import multiprocessing as mp
 from alive_progress import alive_bar
-import pyarrow.parquet as pq
 import gc
 import glob
 import json
 from ete3 import NCBITaxa
 import shutil
+from pathlib import Path
 
 import perseus.utils.globals as globals_mod
 from perseus.utils.constants import CANONICAL_RANKS, N_CHANNELS
@@ -65,7 +65,7 @@ def read_kraken_file(
     LOG.info("Precomputing sequence → taxid k-mer count map from %s", file_path)
     tax_context = build_tax_context(file_path, rows_per_chunk=rows_per_chunk, prefetch_buf=64, dispatch_batch=6, threads=threads)
     LOG.debug("Built taxonomic context: %d sequences with aggregated k-mer taxid counts", len(tax_context))
-
+    print(tax_context)
     # Collect all numeric taxids
     LOG.info("Collecting unique numeric taxids...")
     all_taxids = set()
@@ -105,7 +105,7 @@ def read_kraken_file(
     LOG.info("Completed precomputing taxonomic maps")
     
     # Process CSV in parallel, writing outputs in workers
-    out_dir = os.path.abspath(output_path)
+    out_dir = Path(output_path)
     out_dir.mkdir(parents=True, exist_ok=True)
     LOG.debug(f"Output directory: {str(out_dir)}")
 
@@ -264,7 +264,8 @@ def main():
         
     # Cleanup ETE3 temp dirs
     for tmpdir in glob.glob("/tmp/perseus_ete3db_*"):
-        if os.path.exists(tmpdir):
+        tmpdir = Path(tmpdir)
+        if tmpdir.exists():
             shutil.rmtree(tmpdir)
             LOG.debug("Deleted temp dir: %s", tmpdir)
 
