@@ -6,6 +6,7 @@ import logging
 import multiprocessing as mp
 from alive_progress import alive_bar
 import gc
+import math
 import glob
 import json
 from ete3 import NCBITaxa
@@ -64,8 +65,13 @@ def read_kraken_file(
     # Build tax_context
     LOG.info("Precomputing sequence → taxid k-mer count map from %s", file_path)
     tax_context = build_tax_context(file_path, rows_per_chunk=rows_per_chunk, prefetch_buf=64, dispatch_batch=6, threads=threads)
+    
+    if len(tax_context) == 0:
+        LOG.error("No valid taxonomic evidence could be built from the input file. Please check the file format and contents.")
+        raise SystemExit(1)
+    
     LOG.debug("Built taxonomic context: %d sequences with aggregated k-mer taxid counts", len(tax_context))
-    print(tax_context)
+
     # Collect all numeric taxids
     LOG.info("Collecting unique numeric taxids...")
     all_taxids = set()
@@ -75,7 +81,7 @@ def read_kraken_file(
                 all_taxids.add(normalize_taxid(int(t)))
             except ValueError:
                 LOG.debug("Skipping non-numeric taxid: %s", t)
-                continue
+                continue    
     LOG.debug("Collected %d unique numeric taxids", len(all_taxids))
 
     lineage_map, descendant_map, canonical_map = {}, {}, {}
@@ -119,7 +125,8 @@ def read_kraken_file(
     LOG.info(f"Total rows in file: %d", total_rows)
     
     # Adjust chunksize based on number of workers 
-    adjusted_chunksize = max(total_rows // (nprocs * 10), 2000)
+    adjusted_chunksize = max(total_rows // (nprocs * 10), rows_per_chunk)
+    n_chunks = math.ceil(total_rows / adjusted_chunksize)
     LOG.debug("Adjusted chunksize for reading: %d", adjusted_chunksize)
 
     wrote_rows = 0
@@ -151,7 +158,7 @@ def read_kraken_file(
                     ((chunk, max_bins_per_seq, mess_true_file, mess_input_file, topk_taxa, min_tax_kmers, neg_extra, is_training) for chunk in reader),
                     chunksize=1
                 )
-                with alive_bar(title="Processing chunks", unknown="dots_waves") as bar:
+                with alive_bar(n_chunks, title="Processing chunks") as bar:
                     for meta in results:
                         if meta:
                             wrote_rows  += int(meta.get('rows', 0))
@@ -190,7 +197,7 @@ def read_kraken_file(
                     ((chunk, max_bins_per_seq, mess_true_file, mess_input_file, topk_taxa, min_tax_kmers, neg_extra, is_training) for chunk in reader),
                     chunksize=1
                 )
-                with alive_bar(title="Processing chunks", unknown="dots_waves") as bar:
+                with alive_bar(n_chunks, title="Processing chunks") as bar:
                     for meta in results:
                         if meta:
                             wrote_rows  += int(meta.get('rows', 0))
