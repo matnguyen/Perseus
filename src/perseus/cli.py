@@ -51,7 +51,7 @@ Examples:
     
     parser.add_argument('--version',
                         action='version',
-                        version=f"%(prog)s {version('perseus')}",
+                        version=f"%(prog)s {version('perseus-metagenomics')}",
                         help='Show program version and exit'
     )
     

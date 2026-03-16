@@ -23,6 +23,15 @@ conda create -n perseus -c matnguyen -c conda-forge -c pytorch perseus
 conda activate perseus
 ```
 
+### pip installation
+
+Perseus is available on PyPi and can be installed through pip. There may be issues with installing ETE3 and PyTorch through pip, so we recommend using a new conda or virtual environment:
+
+```bash
+conda create -n perseus ete3 pytorch
+pip install perseus-metagenomics
+```
+
 ## Getting started
 
 ### Feature extraction
