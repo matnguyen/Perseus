@@ -37,6 +37,8 @@ dependencies = [
   "pandas",
   "scikit-learn",
   "pyarrow",
+  "torch",
+  "ete3",
   "alive-progress",
   "legacy-cgi",
 ]
@@ -46,12 +48,6 @@ dev = [
   "pytest-cov",
   "build",
   "twine",
-]
-taxonomy = [
-  "ete3",
-]
-ml = [
-  "torch"
 ]
 
 [project.urls]
