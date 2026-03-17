@@ -16,6 +16,23 @@ def test_extract_then_filter_end_to_end(tmp_path):
 
     extract_out = tmp_path / "extracted_output"
     filter_out = tmp_path / "filtered_output.txt"
+    
+    db_dir = tmp_path / "db"
+    
+    # Run setup
+    setup_cmd = [
+        sys.executable, "-m", "perseus.cli",
+        "setup",
+        str(db_dir),
+    ]
+    setup_res = subprocess.run(setup_cmd, capture_output=True, text=True)
+    
+    assert setup_res.returncode == 0, (
+        f"setup failed\nSTDOUT:\n{setup_res.stdout}\nSTDERR:\n{setup_res.stderr}"
+    )
+    assert db_dir.exists(), f"Database directory {db_dir} was not created"
+    assert any(db_dir.iterdir()), f"Database directory {db_dir} is empty after setup"
+    assert (db_dir / "taxa.sqlite").exists(), "Expected taxa.sqlite not found in database directory"
 
     # Run extract
     extract_cmd = [
@@ -70,6 +87,7 @@ def test_extract_then_filter_end_to_end(tmp_path):
         str(extract_out),
         str(kraken_file),
         str(filter_out),
+        str(db_dir),
     ]
 
     filter_res = subprocess.run(filter_cmd, capture_output=True, text=True)
