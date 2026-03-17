@@ -70,8 +70,9 @@ We provide some data for testing Perseus. They can be found under `tests/test_da
 Run Perseus on the included test data:
 
 ```bash
-perseus extract tests/test_data/test_kraken.txt example_extract
-perseus filter example_extract tests/test_data/test_kraken.txt example_filtered.txt
+perseus setup ete3_db
+perseus extract tests/test_data/test_kraken.txt example_extract ete3_db
+perseus filter example_extract tests/test_data/test_kraken.txt example_filtered.txt ete3_db
 ```
 
 This should produce an output file `example_filtered.txt`.
