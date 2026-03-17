@@ -34,17 +34,23 @@ pip install perseus-metagenomics
 
 ## Getting started
 
+### Setup taxonomy database
+
+Perseus will download an ETE3 taxonomy database.
+
+`perseus setup <db_path>`
+
 ### Feature extraction
 
 Perseus will perform feature extraction on a Kraken2 output file and output a directory of sharded parquets containing the features.
 
-`perseus extract <kraken_file> <output_shards_directory>`
+`perseus extract <kraken_file> <output_shards_directory> <db_path>`
 
 ### Filtering
 
 Perseus takes in the directory of sharded parquets and the Kraken2 output file for filtering.
 
-`perseus filter <shards_directory> <kraken_file> <output_path>`
+`perseus filter <shards_directory> <kraken_file> <output_path> <db_path>`
 
 The output file will be similar to the Kraken2 output file, but without the string of k-mer matches, and with the following additional columns:
 
