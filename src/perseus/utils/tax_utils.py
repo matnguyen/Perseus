@@ -2,6 +2,7 @@ import re
 import logging
 from functools import lru_cache
 from ete3 import NCBITaxa
+from pathlib import Path
 
 import perseus.utils.globals as globals
 from perseus.utils.constants import (
@@ -11,6 +12,16 @@ from perseus.utils.constants import (
 
 logger = logging.getLogger(__name__)
 
+def get_ncbi(db_dir):
+    db_dir = Path(db_dir).expanduser().resolve()
+    sqlite_path = db_dir / "taxa.sqlite"
+
+    if not sqlite_path.exists():
+        logger.error("ETE3 taxonomy database not found at %s", sqlite_path)
+        logger.error("Run `perseus setup --db-dir %s` first", db_dir)
+        raise SystemExit(1)
+
+    return NCBITaxa(dbfile=str(sqlite_path))
 
 def canonicalize_rank(rank):
     """

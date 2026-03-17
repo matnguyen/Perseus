@@ -1,5 +1,3 @@
-# tests/pipelines/test_filter_pipeline.py
-
 import argparse
 from pathlib import Path
 import pandas as pd
@@ -12,16 +10,18 @@ class DummyModel:
     def __call__(self, x, mask=None, extra=None):
         batch_size = x.shape[0]
         out_dim = 7
-        # logits chosen so sigmoid is high for all ranks
         return torch.ones((batch_size, out_dim), dtype=torch.float32)
 
     def eval(self):
         return self
+
 class DummyBar:
     def __init__(self, *args, **kwargs):
         pass
+
     def __enter__(self):
         return lambda *a, **k: None
+
     def __exit__(self, *args):
         pass
 
@@ -52,6 +52,7 @@ def test_run_filter_small(monkeypatch, tmp_path):
         seed=667,
         output_all=False,
         model_path=None,
+        db_dir=str(tmp_path / "ete3"),
     )
 
     fake_batch = {
@@ -65,11 +66,12 @@ def test_run_filter_small(monkeypatch, tmp_path):
     def fake_build_loader(args, manifest_path, batch_size, is_train, shuffle, rank_filter=None):
         return None, [fake_batch]
 
+    monkeypatch.setattr(m, "get_ncbi", lambda db_dir: object())
     monkeypatch.setattr(m, "load_default_model", lambda out_dim, device=None: DummyModel())
     monkeypatch.setattr(m, "build_loader", fake_build_loader)
     monkeypatch.setattr(m, "alive_bar", DummyBar)
-    monkeypatch.setattr(m, "get_lineage", lambda taxid: [1, 2, int(taxid)])
-    monkeypatch.setattr(m, "get_rank", lambda taxid: "species")
+    monkeypatch.setattr(m, "get_lineage", lambda ncbi, taxid: [1, 2, int(taxid)])
+    monkeypatch.setattr(m, "get_rank", lambda ncbi, taxid: "species")
     monkeypatch.setattr(
         m,
         "select_one_row_per_seq",
@@ -87,7 +89,7 @@ def test_run_filter_small(monkeypatch, tmp_path):
 
     saved = pd.read_csv(output_path, sep="\t")
     assert len(saved) == 2
-    
+
 @pytest.mark.pipeline
 def test_run_filter_requires_manifest(tmp_path, monkeypatch):
     input_shards = tmp_path / "shards"
@@ -109,15 +111,18 @@ def test_run_filter_requires_manifest(tmp_path, monkeypatch):
         seed=667,
         output_all=False,
         model_path=None,
+        db_dir=str(tmp_path / "ete3"),
     )
 
+    monkeypatch.setattr(m, "get_ncbi", lambda db_dir: object())
     monkeypatch.setattr(m, "load_default_model", lambda out_dim, device=None: DummyModel())
 
     with pytest.raises(SystemExit) as exc:
         m.run_filter(args)
 
     assert exc.value.code == 1
-        
+
+@pytest.mark.pipeline
 def test_run_filter_uses_explicit_model_path(monkeypatch, tmp_path):
     input_shards = tmp_path / "shards"
     input_shards.mkdir()
@@ -143,6 +148,7 @@ def test_run_filter_uses_explicit_model_path(monkeypatch, tmp_path):
         seed=667,
         output_all=False,
         model_path=str(model_path),
+        db_dir=str(tmp_path / "ete3"),
     )
 
     fake_batch = {
@@ -155,12 +161,21 @@ def test_run_filter_uses_explicit_model_path(monkeypatch, tmp_path):
 
     calls = {"make": 0, "load": 0}
 
-    monkeypatch.setattr(m, "make_model", lambda out_dim, device: calls.__setitem__("make", calls["make"] + 1) or DummyModel())
-    monkeypatch.setattr(m, "load_model", lambda model, path, device: calls.__setitem__("load", calls["load"] + 1) or model)
+    monkeypatch.setattr(m, "get_ncbi", lambda db_dir: object())
+    monkeypatch.setattr(
+        m,
+        "make_model",
+        lambda out_dim, device: calls.__setitem__("make", calls["make"] + 1) or DummyModel()
+    )
+    monkeypatch.setattr(
+        m,
+        "load_model",
+        lambda model, path, device: calls.__setitem__("load", calls["load"] + 1) or model
+    )
     monkeypatch.setattr(m, "build_loader", lambda *a, **k: (None, [fake_batch]))
     monkeypatch.setattr(m, "alive_bar", DummyBar)
-    monkeypatch.setattr(m, "get_lineage", lambda taxid: [1, 2, int(taxid)])
-    monkeypatch.setattr(m, "get_rank", lambda taxid: "species")
+    monkeypatch.setattr(m, "get_lineage", lambda ncbi, taxid: [1, 2, int(taxid)])
+    monkeypatch.setattr(m, "get_rank", lambda ncbi, taxid: "species")
     monkeypatch.setattr(m, "select_one_row_per_seq", lambda df, **kwargs: df)
 
     m.run_filter(args)
