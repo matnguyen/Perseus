@@ -31,6 +31,12 @@ def test_build_tax_context_small(monkeypatch, tmp_path):
         "C\tseq2\t(61)\t900\t60:2 10:1\n"
         "U\tseq3\t(50)\t500\t\n"             # unclassified, has no kmers: should be ignored
     )
+    
+    # ----------------------------
+    # Create an empty taxa.sqlite 
+    # ----------------------------  
+    db_path = tmp_path / "taxa.sqlite"
+    db_path.write_bytes(b"")
 
     # ----------------------------
     # Monkeypatch multiprocessing to avoid real processes
@@ -49,7 +55,12 @@ def test_build_tax_context_small(monkeypatch, tmp_path):
     # ----------------------------
     # Run the function
     # ----------------------------
-    tax_context = m.build_tax_context(str(kraken_path), rows_per_chunk=1)
+    
+    tax_context = m.build_tax_context(
+        str(kraken_path),
+        str(db_path),
+        rows_per_chunk=1,
+    )
 
     # ----------------------------
     # Validate
