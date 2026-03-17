@@ -140,7 +140,7 @@ def test_extract_then_filter_end_to_end_multithreaded(tmp_path):
     extract_cmd = [
         sys.executable, "-m", "perseus.cli",
         "extract",
-        '--threads 4',
+        "--threads", "4",
         str(kraken_file),
         str(extract_out),
         str(db_dir)
@@ -239,7 +239,7 @@ def test_extract_then_filter_end_to_end_single_threaded(tmp_path):
     extract_cmd = [
         sys.executable, "-m", "perseus.cli",
         "extract",
-        '--threads 1',
+        "--threads", "1",
         str(kraken_file),
         str(extract_out),
         str(db_dir)
