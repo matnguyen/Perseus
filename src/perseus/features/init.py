@@ -1,9 +1,11 @@
 import os
 import shutil
 import tempfile
+import atexit
 from ete3 import NCBITaxa
 
 import perseus.utils.globals as globals_mod
+from perseus.utils.tax_utils import get_ncbi
 
 def effective_nprocs():
     """
@@ -36,25 +38,18 @@ def cleanup_ete3_tmpdir():
         print(f"[CLEANUP] Temp dir not found or already deleted: {tmpdir}")
 
 
-def _init_ncbi_private_db():
+def _init_ncbi_private_db(db_path: str):
     """
     Create a private copy of the ETE3 SQLite DB for this worker to avoid
     read-lock contention on NFS and reduce D-state stalls
     """
-    global NCBI
-    tmp = NCBITaxa()
-    try:
-        src_db = tmp.dbfile
-    except Exception:
-        src_db = os.path.expanduser("~/.etetoolkit/taxa.sqlite")
-    if not os.path.exists(src_db):
-        _ = NCBITaxa()
-        src_db = _.dbfile
-
     tmpdir = tempfile.mkdtemp(prefix="perseus_ete3db_")
     dst_db = os.path.join(tmpdir, "taxa.sqlite")
-    shutil.copy2(src_db, dst_db)
-    globals_mod.NCBI = NCBITaxa(dbfile=dst_db)
+    sqlite_path = os.path.join(db_path, "taxa.sqlite")
+    shutil.copy2(sqlite_path, dst_db)
+
+    globals_mod._ete3_tmpdir = tmpdir
+    globals_mod.NCBI = get_ncbi(db_path)
 
 
 def init_worker(
@@ -63,12 +58,13 @@ def init_worker(
     descendant_map, 
     canonical_map, 
     out_dir,
+    db_path,
     shard_size=4096, 
     target_length=1024,
     to_dtype="float32",
     manifest_paths=None, 
     mess_true_file=None, 
-    mess_input_file=None
+    mess_input_file=None,
 ):
     """
     Init for the feature-extraction pool: set globals + private NCBI DB copy
@@ -86,7 +82,8 @@ def init_worker(
     globals_mod._shared_mess_true_file = mess_true_file
     globals_mod._shared_mess_input_file = mess_input_file
 
-    _init_ncbi_private_db()
+    _init_ncbi_private_db(db_path)
+    atexit.register(cleanup_ete3_tmpdir)
 
 
 def _next_worker_part_name(ext="parquet"):
