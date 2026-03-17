@@ -12,8 +12,8 @@ from perseus.utils.constants import (
 
 logger = logging.getLogger(__name__)
 
-def get_ncbi(ete3_path):
-    db_dir = Path(ete3_path).expanduser().resolve()
+def get_ncbi(db_dir):
+    db_dir = Path(db_dir).expanduser().resolve()
     sqlite_path = db_dir / "taxa.sqlite"
 
     if not sqlite_path.exists():

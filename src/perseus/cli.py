@@ -88,7 +88,7 @@ Examples:
     filter_parser.add_argument('output_path', type=str, 
                                help="Path for the output filtered Kraken file")
     filter_parser.add_argument('db_dir', type=str, 
-                help="Directory containing ETE3 taxonomy database ")
+                               help="Directory containing ETE3 taxonomy database")
     filter_parser.add_argument('--batch-size', type=int, default=128,
                                help=argparse.SUPPRESS)
     filter_parser.add_argument('--cache-shards', type=int, default=1,
@@ -122,6 +122,8 @@ Examples:
                                 help="Path to the Kraken output file")
     extract_parser.add_argument('output_path', type=str,
                                 help="Path to output directory")
+    extract_parser.add_argument('db_dir', type=str, 
+                                help="Directory containing ETE3 taxonomy database")
     extract_parser.add_argument('--rows-per-chunk', type=int, default=20000,
                                 help=argparse.SUPPRESS)
     extract_parser.add_argument('--max-bins-per-seq', type=int, default=None,
@@ -191,9 +193,9 @@ Examples:
         runpy.run_module('perseus.commands.filter', run_name='__main__')
         
     elif args.command == 'extract':
-        sys.argv = ['extract', args.file_path, args.output_path]
+        sys.argv = ['extract', args.file_path, args.output_path, args.db_dir]
         for key, value in vars(args).items():
-            if key in ['command', 'file_path', 'output_path']:
+            if key in ['command', 'file_path', 'output_path', 'db_dir']:
                 continue
             if isinstance(value, bool):
                 if value:
