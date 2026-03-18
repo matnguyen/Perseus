@@ -98,7 +98,7 @@ def read_kraken_file(
     elif threads == 1:
         LOG.info("Precomputing lineage/descendant maps for %d taxids using single-threaded mode", len(all_taxids))
         for tid in all_taxids:
-            tid, lineage, descendants, canonicals = fetch_maps(tid, db_path)
+            tid, lineage, descendants, canonicals = fetch_maps((tid, db_path))
             lineage_map[tid]    = lineage
             descendant_map[tid] = descendants
             canonical_map[tid]  = canonicals
@@ -258,7 +258,7 @@ def main():
     )
     
     if not os.path.exists(args.db_dir):
-        LOG.error("ETE3 taxonomy database not found at %s", args.dbdir / "taxa.sqlite")
+        LOG.error("ETE3 taxonomy database not found at %s", args.db_dir / "taxa.sqlite")
         LOG.error("Run `perseus setup --db-dir %s` first", args.db_dir)
         raise SystemExit(1) 
     
