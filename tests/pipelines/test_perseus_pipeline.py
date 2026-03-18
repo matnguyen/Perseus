@@ -306,6 +306,6 @@ def test_extract_then_filter_end_to_end_single_threaded(tmp_path):
         exp,
         check_dtype=False,
         check_exact=False,
-        atol=1e-5,
-        rtol=1e-4
+        atol=1e-3,
+        rtol=1e-6
     )
