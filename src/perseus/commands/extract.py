@@ -89,23 +89,25 @@ def read_kraken_file(
     if threads == 0:
         nprocs = effective_nprocs()
         LOG.info("Precomputing lineage/descendant maps for %d taxids using %d processes", len(all_taxids), nprocs)
+        work = [(tid, db_path) for tid in all_taxids]
         with mp.Pool(processes=nprocs, maxtasksperchild=200) as pool:
-            for tid, lineage, descendants, canonicals in pool.imap_unordered(fetch_maps, all_taxids, chunksize=rows_per_chunk):
+            for tid, lineage, descendants, canonicals in pool.imap_unordered(fetch_maps, work, chunksize=rows_per_chunk):
                 lineage_map[tid]    = lineage
                 descendant_map[tid] = descendants
                 canonical_map[tid]  = canonicals
     elif threads == 1:
         LOG.info("Precomputing lineage/descendant maps for %d taxids using single-threaded mode", len(all_taxids))
         for tid in all_taxids:
-            tid, lineage, descendants, canonicals = fetch_maps(tid)
+            tid, lineage, descendants, canonicals = fetch_maps(tid, db_path)
             lineage_map[tid]    = lineage
             descendant_map[tid] = descendants
             canonical_map[tid]  = canonicals
     else:
         nprocs = threads
         LOG.info("Precomputing lineage/descendant maps for %d taxids using %d processes (user-specified)", len(all_taxids), nprocs)
+        work = [(tid, db_path) for tid in all_taxids]
         with mp.Pool(processes=nprocs, maxtasksperchild=200) as pool:
-            for tid, lineage, descendants, canonicals in pool.imap_unordered(fetch_maps, all_taxids, chunksize=rows_per_chunk):
+            for tid, lineage, descendants, canonicals in pool.imap_unordered(fetch_maps, work, chunksize=rows_per_chunk):
                 lineage_map[tid]    = lineage
                 descendant_map[tid] = descendants
                 canonical_map[tid]  = canonicals

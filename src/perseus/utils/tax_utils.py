@@ -73,7 +73,7 @@ def get_canonical_taxid_for_rank(taxid, canonical_ranks, ncbi):
         return {r: None for r in canonical_ranks}
 
 
-def fetch_maps(tid):
+def fetch_maps(args):
     """
     Fetch lineage, canonical, and descendant maps for a given taxid
 
@@ -83,7 +83,9 @@ def fetch_maps(tid):
     Returns:
         tuple: (lineage_map, canonical_map, descendant_map)
     """
-    ncbi = NCBITaxa()
+    tid, db_dir = args
+    ncbi = get_ncbi(db_dir)
+
     try:
         lineage = ncbi.get_lineage(int(tid))
         descendants = set(ncbi.get_descendant_taxa(int(tid)))
@@ -108,6 +110,7 @@ def get_taxid_rank_raw(taxid: int):
     try:
         return globals.NCBI.get_rank([int(taxid)]).get(int(taxid), None)
     except Exception:
+        logger.warning(f"Taxid {taxid} not found in NCBI database, returning None for raw rank.")
         return None
     
     
@@ -161,7 +164,11 @@ def cached_get_rank(taxid):
     Returns:
         str: Rank string
     """
-    return globals.NCBI.get_rank([taxid])
+    try:
+        return globals.NCBI.get_rank([taxid])
+    except Exception:
+        logger.warning(f"Taxid {taxid} not found in NCBI database, returning empty rank mapping.")
+        return {}
 
 @lru_cache(maxsize=100000)
 def get_lineage_path(taxid):
@@ -177,6 +184,7 @@ def get_lineage_path(taxid):
     try:
         return globals.NCBI.get_lineage(int(taxid))
     except Exception:
+        logger.warning(f"Taxid {taxid} not found in NCBI database, returning empty lineage.")
         return []
 
 @lru_cache(maxsize=100000)
@@ -193,6 +201,7 @@ def get_taxid_to_rank(taxid):
     try:
         return globals.NCBI.get_rank([int(taxid)]).get(int(taxid), None)
     except Exception:
+        logger.warning(f"Taxid {taxid} not found in NCBI database, returning None for rank.")
         return None
 
 @lru_cache(maxsize=100000)
@@ -209,6 +218,7 @@ def get_descendants(taxid):
     try:
         return globals.NCBI.get_descendant_taxa(int(taxid), collapse_subspecies=False, intermediate_nodes=True)
     except Exception:
+        logger.warning(f"Taxid {taxid} not found in NCBI database, returning empty descendant list.")
         return []
 
 @lru_cache(maxsize=200000)
@@ -230,4 +240,5 @@ def normalize_taxid(tid):
         lin = globals.NCBI.get_lineage(tid)
         return int(lin[-1]) if lin else tid
     except Exception:
+        logger.warning(f"Taxid {tid} not found in NCBI database, returning original taxid.")
         return tid
