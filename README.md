@@ -55,9 +55,10 @@ Perseus takes in the directory of sharded parquets and the Kraken2 output file f
 The output file will be similar to the Kraken2 output file, but without the string of k-mer matches, and with the following additional columns:
 
 1. perseus_taxid - the taxonomic ID assigned by Perseus
-2. prob_{rank} - the assignment probability at a canonical {rank}
+2. perseus_taxonomy - the taxonomic name assigned by Perseus
 3. chosen_rank - the final chosen rank assigned by Perseus
 4. chosen_prob_at_rank - the probability at the final chosen rank
+5. prob_{rank} - the assignment probability at a canonical {rank}
 
 ## Testing Data
 
