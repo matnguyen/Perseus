@@ -2,7 +2,7 @@ classified	sequence_id	kraken_taxonomy	length	kraken_taxid	perseus_taxid	perseus
 C	mess_input_1	Sanyastnella coralliicola (taxid 3069118)	9460	3069118	3069118	Sanyastnella coralliicola	species	0.818809	0.999902	0.999820	0.999477	0.999526	0.997612	0.991590	0.818809
 C	mess_input_10	Labilibaculum antarcticum (taxid 1717717)	13717	1717717	2	Bacteria	superkingdom	0.594272	0.594272	0.391468	0.197521	0.179067	0.133009	0.049403	0.006217
 C	mess_input_2	Picosynechococcus sp. PCC 11901 (taxid 2579791)	14838	2579791	2579791	Picosynechococcus sp. PCC 11901	species	0.994272	1.000000	1.000000	0.999999	0.999999	0.999994	0.999955	0.994272
-C	mess_input_3	Enterobacter cloacae (taxid 550)	8103	550	543	Enterobacteriaceae	family	0.886332	0.995346	0.994456	0.989935	0.972827	0.886332	0.083497	0.029075
+C	mess_input_3	Enterobacter cloacae (taxid 550)	8103	550	543	Enterobacteriaceae	family	0.885732	0.994638	0.993652	0.988898	0.970877	0.885732	0.098358	0.033494
 C	mess_input_4	Chondromyces crocatus (taxid 52)	8520	52	2818505	Myxococcota	phylum	0.525470	0.568319	0.525470	0.430180	0.377562	0.328594	0.164748	0.070098
 C	mess_input_5	Bdellovibrio sp. ZAP7 (taxid 2231053)	9940	2231053	2231053	Bdellovibrio sp. ZAP7	species	0.892180	0.999851	0.999782	0.999351	0.999286	0.997311	0.991289	0.892180
 C	mess_input_6	Methylobacterium organophilum (taxid 410)	10113	410	410	Methylobacterium organophilum	species	0.729571	0.998545	0.997930	0.996087	0.995099	0.982470	0.959951	0.729571
