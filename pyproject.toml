@@ -70,6 +70,6 @@ perseus = ["models/*.pt"]
 
 [tool.pytest.ini_options]
 markers = [
-    "pipeline: slower end-to-end pipeline tests"
-    "dev: development-only tests"
+    "pipeline: slower end-to-end pipeline tests",
+    "dev: development-only tests",
 ]
