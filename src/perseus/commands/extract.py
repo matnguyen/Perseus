@@ -9,13 +9,13 @@ import gc
 import math
 import glob
 import json
-from ete3 import NCBITaxa
 import shutil
 from pathlib import Path
 
 import perseus.utils.globals as globals_mod
 from perseus.utils.constants import CANONICAL_RANKS, N_CHANNELS
 from perseus.utils.tax_utils import (
+    get_ncbi,
     normalize_taxid,
     fetch_maps
 )
@@ -40,13 +40,14 @@ LOG = logging.getLogger(__name__)
 def read_kraken_file(
         file_path,
         output_path, 
+        db_path,
         rows_per_chunk=5000, 
         threads=0, 
         max_bins_per_seq=None,
         shard_size=4096, 
         target_length=1024, 
         to_dtype="float32",
-        min_tax_kmers=10
+        min_tax_kmers=10,
     ):
     LOG.info("Starting feature extraction...")
     LOG.info("Input file: %s", file_path)
@@ -64,7 +65,7 @@ def read_kraken_file(
 
     # Build tax_context
     LOG.info("Precomputing sequence → taxid k-mer count map from %s", file_path)
-    tax_context = build_tax_context(file_path, rows_per_chunk=rows_per_chunk, prefetch_buf=64, dispatch_batch=6, threads=threads)
+    tax_context = build_tax_context(file_path, db_path, rows_per_chunk=rows_per_chunk, prefetch_buf=64, dispatch_batch=6, threads=threads)
     
     if len(tax_context) == 0:
         LOG.error("No valid taxonomic evidence could be built from the input file. Please check the file format and contents.")
@@ -88,23 +89,25 @@ def read_kraken_file(
     if threads == 0:
         nprocs = effective_nprocs()
         LOG.info("Precomputing lineage/descendant maps for %d taxids using %d processes", len(all_taxids), nprocs)
+        work = [(tid, db_path) for tid in all_taxids]
         with mp.Pool(processes=nprocs, maxtasksperchild=200) as pool:
-            for tid, lineage, descendants, canonicals in pool.imap_unordered(fetch_maps, all_taxids, chunksize=rows_per_chunk):
+            for tid, lineage, descendants, canonicals in pool.imap_unordered(fetch_maps, work, chunksize=rows_per_chunk):
                 lineage_map[tid]    = lineage
                 descendant_map[tid] = descendants
                 canonical_map[tid]  = canonicals
     elif threads == 1:
         LOG.info("Precomputing lineage/descendant maps for %d taxids using single-threaded mode", len(all_taxids))
         for tid in all_taxids:
-            tid, lineage, descendants, canonicals = fetch_maps(tid)
+            tid, lineage, descendants, canonicals = fetch_maps((tid, db_path))
             lineage_map[tid]    = lineage
             descendant_map[tid] = descendants
             canonical_map[tid]  = canonicals
     else:
         nprocs = threads
         LOG.info("Precomputing lineage/descendant maps for %d taxids using %d processes (user-specified)", len(all_taxids), nprocs)
+        work = [(tid, db_path) for tid in all_taxids]
         with mp.Pool(processes=nprocs, maxtasksperchild=200) as pool:
-            for tid, lineage, descendants, canonicals in pool.imap_unordered(fetch_maps, all_taxids, chunksize=rows_per_chunk):
+            for tid, lineage, descendants, canonicals in pool.imap_unordered(fetch_maps, work, chunksize=rows_per_chunk):
                 lineage_map[tid]    = lineage
                 descendant_map[tid] = descendants
                 canonical_map[tid]  = canonicals
@@ -149,7 +152,7 @@ def read_kraken_file(
             with mp.Pool(
                 processes=nprocs,
                 initializer=init_worker,
-                initargs=(tax_context, lineage_map, descendant_map, canonical_map, str(out_dir),
+                initargs=(tax_context, lineage_map, descendant_map, canonical_map, str(out_dir), db_path,
                           shard_size, target_length, to_dtype, manifest_paths),
                 maxtasksperchild=200
             ) as pool:
@@ -167,7 +170,7 @@ def read_kraken_file(
                         gc.collect()
 
         elif threads == 1:
-            init_worker(tax_context, lineage_map, descendant_map, canonical_map, str(out_dir),
+            init_worker(tax_context, lineage_map, descendant_map, canonical_map, str(out_dir), db_path,
                         shard_size, target_length, to_dtype, manifest_paths)
             for chunk in reader:
                 meta = process_chunk_and_write(
@@ -188,7 +191,7 @@ def read_kraken_file(
             with mp.Pool(
                 processes=threads,
                 initializer=init_worker,
-                initargs=(tax_context, lineage_map, descendant_map, canonical_map, str(out_dir),
+                initargs=(tax_context, lineage_map, descendant_map, canonical_map, str(out_dir), db_path,
                           shard_size, target_length, to_dtype, manifest_paths),
                 maxtasksperchild=200
             ) as pool:
@@ -230,9 +233,10 @@ def read_kraken_file(
     LOG.info("Wrote shard manifest → %s", mani_path)
 
 def main():
-    parser = ap.ArgumentParser(description='Chunked and parallel processing of Kraken output with Option-B labeling.')
+    parser = ap.ArgumentParser(description='Chunked and parallel processing of Kraken output')
     parser.add_argument('file_path', type=str, help='Path to the Kraken output file')
     parser.add_argument('output_path', type=str, help='Path to output directory')
+    parser.add_argument('db_dir', type=str, help="Directory containing ETE3 taxonomy database ")
     
     parser.add_argument('--rows-per-chunk', type=int, default=20000, help='Rows per DataFrame chunk for pools')
     parser.add_argument('--max-bins-per-seq', type=int, default=None, help='Max bins per (seq_id, taxon) (default: None)')
@@ -253,20 +257,26 @@ def main():
         datefmt="%H:%M:%S",
     )
     
+    if not os.path.exists(args.db_dir):
+        LOG.error("ETE3 taxonomy database not found at %s", args.db_dir / "taxa.sqlite")
+        LOG.error("Run `perseus setup --db-dir %s` first", args.db_dir)
+        raise SystemExit(1) 
+    
     if args.threads == 1:
-        globals_mod.NCBI = NCBITaxa() # Pre-initialize for single-threaded mode
+        globals_mod.NCBI = get_ncbi(args.db_dir)  # Initialize NCBI in main process for single-threaded mode
 
     # Run extraction
     read_kraken_file(
         args.file_path, 
         args.output_path,
+        args.db_dir,
         rows_per_chunk=args.rows_per_chunk, 
         threads=args.threads, 
         max_bins_per_seq=args.max_bins_per_seq,
         shard_size=args.shard_size,
         target_length=args.target_length, 
         to_dtype=args.to_dtype,
-        min_tax_kmers=args.min_tax_kmers
+        min_tax_kmers=args.min_tax_kmers,
     )
         
     # Cleanup ETE3 temp dirs

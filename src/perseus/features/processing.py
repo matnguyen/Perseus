@@ -6,9 +6,10 @@ import multiprocessing as mp
 from alive_progress import alive_bar
 from collections import defaultdict
 
+import perseus.utils.globals as globals
 from perseus.features.features import compute_bin_features
 from perseus.utils.constants import CANONICAL_RANKS
-import perseus.utils.globals as globals
+from perseus.utils.tax_utils import get_ncbi
 from perseus.features.init import (
     _init_ncbi_private_db,
     effective_nprocs
@@ -20,8 +21,7 @@ from perseus.utils.io_utils import (
 from perseus.utils.tax_utils import (
     normalize_taxid,
     get_lineage_path,
-    lineage_to_rank_map,
-    predicted_rank
+    lineage_to_rank_map
 )
 from perseus.utils.targets import (
     compute_cutoff_and_exclusion,
@@ -147,7 +147,7 @@ def add_to_bins(bin_counts_by_bin, bin_size, taxid, count, cur_pos):
     return pos
 
 
-def build_tax_context(file_path, rows_per_chunk=1000, prefetch_buf=64, dispatch_batch=4, threads=0):
+def build_tax_context(file_path, db_path, rows_per_chunk=1000, prefetch_buf=64, dispatch_batch=4, threads=0):
     """
     Build a mapping from sequence ID to k-mer taxonomic counts from a Kraken2 classification file
 
@@ -184,7 +184,7 @@ def build_tax_context(file_path, rows_per_chunk=1000, prefetch_buf=64, dispatch_
     if nprocs <= 1:
         logger.info("Building tax_context in single-threaded mode.")
         # Ensure NCBI handle is initialized in this process
-        _init_ncbi_private_db()
+        globals.NCBI = get_ncbi(db_path)
         with alive_bar(title="Building tax context", unknown="dots_waves") as bar:
             for chunk in reader:
                 res = extract_tax_context_chunk(chunk)
@@ -194,7 +194,7 @@ def build_tax_context(file_path, rows_per_chunk=1000, prefetch_buf=64, dispatch_
         return tax_context
 
     logger.info(f"Using {nprocs} processes for tax_context build.")
-    with mp.Pool(processes=nprocs, maxtasksperchild=200, initializer=_init_ncbi_private_db) as pool:
+    with mp.Pool(processes=nprocs, maxtasksperchild=200, initializer=_init_ncbi_private_db, initargs=(db_path,)) as pool:
         it = pool.imap_unordered(
             extract_tax_context_chunk,
             prefetch(reader, bufsize=prefetch_buf),

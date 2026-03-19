@@ -23,26 +23,42 @@ conda create -n perseus -c matnguyen -c conda-forge -c pytorch perseus
 conda activate perseus
 ```
 
+### pip installation
+
+Perseus is available on PyPi and can be installed through pip. There may be issues with installing ETE3 and PyTorch through pip, so we recommend using a new conda or virtual environment:
+
+```bash
+conda create -n perseus ete3 pytorch
+pip install perseus-metagenomics
+```
+
 ## Getting started
+
+### Setup taxonomy database
+
+Perseus will download an ETE3 taxonomy database.
+
+`perseus setup <db_path>`
 
 ### Feature extraction
 
 Perseus will perform feature extraction on a Kraken2 output file and output a directory of sharded parquets containing the features.
 
-`perseus extract <kraken_file> <output_shards_directory>`
+`perseus extract <kraken_file> <output_shards_directory> <db_path>`
 
 ### Filtering
 
 Perseus takes in the directory of sharded parquets and the Kraken2 output file for filtering.
 
-`perseus filter <shards_directory> <kraken_file> <output_path>`
+`perseus filter <shards_directory> <kraken_file> <output_path> <db_path>`
 
 The output file will be similar to the Kraken2 output file, but without the string of k-mer matches, and with the following additional columns:
 
 1. perseus_taxid - the taxonomic ID assigned by Perseus
-2. prob_{rank} - the assignment probability at a canonical {rank}
+2. perseus_taxonomy - the taxonomic name assigned by Perseus
 3. chosen_rank - the final chosen rank assigned by Perseus
 4. chosen_prob_at_rank - the probability at the final chosen rank
+5. prob_{rank} - the assignment probability at a canonical {rank}
 
 ## Testing Data
 
@@ -55,8 +71,9 @@ We provide some data for testing Perseus. They can be found under `tests/test_da
 Run Perseus on the included test data:
 
 ```bash
-perseus extract tests/test_data/test_kraken.txt example_extract
-perseus filter example_extract tests/test_data/test_kraken.txt example_filtered.txt
+perseus setup ete3_db
+perseus extract tests/test_data/test_kraken.txt example_extract ete3_db
+perseus filter example_extract tests/test_data/test_kraken.txt example_filtered.txt ete3_db
 ```
 
 This should produce an output file `example_filtered.txt`.

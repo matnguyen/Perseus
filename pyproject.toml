@@ -3,25 +3,57 @@ requires = ["setuptools>=68", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "perseus"
-version = "1.0.1"
+name = "perseus-metagenomics"
+version = "1.1.0"
 description = "Lineage-aware Kraken2 refinement for long-read metagenomics "
 readme = "README.md"
 requires-python = ">=3.10"
+license = { text = "MIT" }
 authors = [
   { name = "Matthew Nguyen" }
+]
+keywords = [
+  "metagenomics",
+  "bioinformatics",
+  "kraken2",
+  "taxonomy",
+  "long-read",
+  "microbiome",
+]
+classifiers = [
+  "Development Status :: 4 - Beta",
+  "Intended Audience :: Science/Research",
+  "License :: OSI Approved :: MIT License",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Topic :: Scientific/Engineering :: Bio-Informatics",
+  "Operating System :: OS Independent",
 ]
 
 dependencies = [
   "numpy",
   "pandas",
-  "torch",
   "scikit-learn",
-  "ete3",
   "pyarrow",
+  "torch",
+  "ete3",
   "alive-progress",
   "legacy-cgi",
 ]
+[project.optional-dependencies]
+dev = [
+  "pytest",
+  "pytest-cov",
+  "build",
+  "twine",
+]
+
+[project.urls]
+Homepage = "https://github.com/matnguyen/perseus"
+Repository = "https://github.com/matnguyen/perseus"
+Issues = "https://github.com/matnguyen/perseus/issues"
 
 [project.scripts]
 perseus = "perseus.cli:main"

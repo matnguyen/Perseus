@@ -83,50 +83,70 @@ def test_normalize_on_get_lineage_exception(monkeypatch):
 """
 Tests for fetch_maps
 """
-def test_fetch_maps_good_path():
+def test_fetch_maps_good_path(monkeypatch):
     m = importlib.import_module(MODULE)
-    globals_mod = importlib.import_module(GLOBALS_MODULE)
     constants_mod = importlib.import_module(CONSTANTS_MODULE)
 
-    # Use the FakeNCBI taxonomy from conftest
-    tid, lineage, descendants, canon = m.fetch_maps(60)
+    class FakeNCBI:
+        def get_lineage(self, tid):
+            assert tid == 60
+            return [2, 10, 20, 30, 40, 50, 60]
+
+        def get_descendant_taxa(self, tid, collapse_subspecies=False, intermediate_nodes=True):
+            assert tid == 60
+            return [61, 62]
+
+        def get_rank(self, ids):
+            mapping = {
+                2: "superkingdom",
+                10: "phylum",
+                20: "class",
+                30: "order",
+                40: "family",
+                50: "genus",
+                60: "species",
+            }
+            return {int(t): mapping.get(int(t)) for t in ids}
+
+    def fake_get_ncbi(db_dir):
+        assert str(db_dir) == "/fake/db"
+        return FakeNCBI()
+
+    monkeypatch.setattr(m, "get_ncbi", fake_get_ncbi)
+
+    tid, lineage, descendants, canon = m.fetch_maps((60, "/fake/db"))
 
     assert tid == 60
-
-    # Lineage should match what FakeNCBI returns
-    expected_lineage = globals_mod.NCBI.get_lineage(60)
-    assert lineage == expected_lineage
-
-    # Descendants should match FakeNCBI get_descendant_taxa
-    expected_desc = set(globals_mod.NCBI.get_descendant_taxa(60))
-    assert descendants == expected_desc
-
-    # Canonical ranks should be consistent
-    # From FakeNCBI: 2=superkingdom, 10=phylum, 50=genus, 60=species
+    assert lineage == [2, 10, 20, 30, 40, 50, 60]
+    assert descendants == {61, 62}
     assert canon["superkingdom"] == 2
     assert canon["phylum"] == 10
+    assert canon["class"] == 20
+    assert canon["order"] == 30
+    assert canon["family"] == 40
     assert canon["genus"] == 50
     assert canon["species"] == 60
-    # Other ranks present but may be None
+
     for r in constants_mod.CANONICAL_RANKS:
         assert r in canon
 
 
 def test_fetch_maps_error_path(monkeypatch):
     m = importlib.import_module(MODULE)
-
-    # Make NCBITaxa.get_lineage raise for this test
+    
     class RaisingNCBI:
-        def __init__(self, dbfile=None): pass
         def get_lineage(self, tid):
             raise RuntimeError("boom")
+
         def get_descendant_taxa(self, tid, collapse_subspecies=False, intermediate_nodes=True):
             raise RuntimeError("boom")
 
-    # Patch NCBITaxa used inside fetch_maps
-    monkeypatch.setattr(m, "NCBITaxa", RaisingNCBI, raising=True)
+        def get_rank(self, ids):
+            raise RuntimeError("boom")
 
-    tid, lineage, descendants, canon = m.fetch_maps(999)
+    monkeypatch.setattr(m, "get_ncbi", lambda db_dir: RaisingNCBI())
+
+    tid, lineage, descendants, canon = m.fetch_maps((999, "/fake/db"))
 
     assert tid == 999
     assert lineage == []

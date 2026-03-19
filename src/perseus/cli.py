@@ -41,6 +41,9 @@ def main():
         formatter_class=argparse.RawTextHelpFormatter,
         epilog="""
 Examples:
+    # Setup ETE3 taxonomy database for Perseus
+    perseus setup <path_to_directory>
+
     # Extract features for inference
     perseus extract <kraken_file> <output_shards_directory>
     
@@ -51,11 +54,24 @@ Examples:
     
     parser.add_argument('--version',
                         action='version',
-                        version=f"%(prog)s {version('perseus')}",
+                        version=f"%(prog)s {version('perseus-metagenomics')}",
                         help='Show program version and exit'
     )
     
     subparsers = parser.add_subparsers(dest='command', help="Available commands")
+    
+    # ==================== setup subcommand ====================
+    setup_parser = subparsers.add_parser(
+        'setup',
+        parents=[common_parser],
+        help='Setup ETE3 taxonomic database for Perseus',
+        description=BANNER + "\nSetup ETE3 taxonomic database for Perseus",
+        formatter_class=argparse.RawTextHelpFormatter,
+    )
+    setup_parser.add_argument('db_dir', type=str,
+                              help="Directory to store ETE3 taxonomy database")
+    setup_parser.add_argument('--update', action='store_true',
+                              help="Force update of the ETE3 taxonomy database even if it already exists")
     
     # ==================== filter subcommand ====================
     filter_parser = subparsers.add_parser(
@@ -71,6 +87,8 @@ Examples:
                                help="Path to Kraken output file to filter")
     filter_parser.add_argument('output_path', type=str, 
                                help="Path for the output filtered Kraken file")
+    filter_parser.add_argument('db_dir', type=str, 
+                               help="Directory containing ETE3 taxonomy database")
     filter_parser.add_argument('--batch-size', type=int, default=128,
                                help=argparse.SUPPRESS)
     filter_parser.add_argument('--cache-shards', type=int, default=1,
@@ -104,6 +122,8 @@ Examples:
                                 help="Path to the Kraken output file")
     extract_parser.add_argument('output_path', type=str,
                                 help="Path to output directory")
+    extract_parser.add_argument('db_dir', type=str, 
+                                help="Directory containing ETE3 taxonomy database")
     extract_parser.add_argument('--rows-per-chunk', type=int, default=20000,
                                 help=argparse.SUPPRESS)
     extract_parser.add_argument('--max-bins-per-seq', type=int, default=None,
@@ -121,7 +141,8 @@ Examples:
     
     subparser_map = {
         'filter': filter_parser,
-        'extract': extract_parser
+        'extract': extract_parser,
+        'setup': setup_parser
     }
     
     # ==================== Manual help if no command or args provided ====================
@@ -151,11 +172,17 @@ Examples:
         )
     
     # ====================== Dispatch to appropriate command module ====================
-    if args.command == 'filter':
+    if args.command == 'setup':
+        sys.argv = ['setup', args.db_dir]
+        if args.update:
+            sys.argv.append('--update')
+        runpy.run_module('perseus.commands.setup', run_name='__main__')
+        
+    elif args.command == 'filter':
         # Convert parsed args back to sys.argv format for the module
-        sys.argv = ['filter', args.input_shards, args.input_kraken, args.output_path]
+        sys.argv = ['filter', args.input_shards, args.input_kraken, args.output_path, args.db_dir]
         for key, value in vars(args).items():
-            if key in ['command', 'input_shards', 'input_kraken', 'output_path']:
+            if key in ['command', 'input_shards', 'input_kraken', 'output_path', 'db_dir']:
                 continue
             if isinstance(value, bool):
                 if value:
@@ -166,9 +193,9 @@ Examples:
         runpy.run_module('perseus.commands.filter', run_name='__main__')
         
     elif args.command == 'extract':
-        sys.argv = ['extract', args.file_path, args.output_path]
+        sys.argv = ['extract', args.file_path, args.output_path, args.db_dir]
         for key, value in vars(args).items():
-            if key in ['command', 'file_path', 'output_path']:
+            if key in ['command', 'file_path', 'output_path', 'db_dir']:
                 continue
             if isinstance(value, bool):
                 if value:

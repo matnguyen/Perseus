@@ -2,12 +2,12 @@ import os
 import argparse
 import logging
 import torch
-import pickle
 import glob
 import pandas as pd
 from alive_progress import alive_bar
-from ete3 import NCBITaxa
+from pathlib import Path
 
+from perseus.utils.tax_utils import get_ncbi
 from perseus.utils.constants import CANONICAL_RANKS
 from perseus.data.dataset import build_loader
 from perseus.utils.filter_utils import select_one_row_per_seq
@@ -18,16 +18,15 @@ from perseus.models.initialize import (
 )
 
 LOG = logging.getLogger(__name__)
-ncbi = NCBITaxa()
 
-def get_rank(taxid):
+def get_rank(ncbi, taxid):
     try:
         rank = ncbi.get_rank([taxid])[taxid]
     except KeyError:
         rank = 'no_rank'
     return rank
 
-def get_lineage(taxid):
+def get_lineage(ncbi, taxid):
     try:
         lineage = ncbi.get_lineage(taxid)
     except ValueError:
@@ -69,7 +68,7 @@ def run_filter(args):
     manifests = glob.glob(os.path.join(args.input_shards, "*manifest*.json"))
     LOG.debug("Manifest candidates: %s", manifests)
     if len(manifests) > 1:
-        LOG.warning("Multiple manifest files found; using first: %s", manifest_path)
+        LOG.warning("Multiple manifest files found; using first: %s", manifests[0])
         
     if not manifests:
         LOG.error("No manifest files found in input directory: %s", args.input_shards)
@@ -159,11 +158,15 @@ def run_filter(args):
     merged_df['perseus_taxid'] = merged_df['perseus_taxid'].astype(int)
     
     unique_truth = merged_df["kraken_taxid"].unique()
+    
+    ncbi = get_ncbi(args.db_dir)
+    LOG.info("Loaded ETE3 taxonomy database from %s", Path(args.db_dir).expanduser().resolve())
+    
     lineage_cache = {}
 
     with alive_bar(len(unique_truth), title="Caching lineages") as bar:
         for t in unique_truth:
-            lineage_cache[t] = set(get_lineage(t)) 
+            lineage_cache[t] = set(get_lineage(ncbi, t)) 
             bar()
             
     unique_perseus = merged_df["perseus_taxid"].unique()
@@ -171,11 +174,38 @@ def run_filter(args):
 
     with alive_bar(len(unique_perseus), title="Caching ranks") as bar:
         for tx in unique_perseus:
-            rank_cache[tx] = get_rank(tx)
+            rank_cache[tx] = get_rank(ncbi, tx)
+            bar()
+            
+    perseus_lineage_list_cache = {}
+
+    with alive_bar(len(unique_perseus), title="Caching Perseus lineages") as bar:
+        for tx in unique_perseus:
+            perseus_lineage_list_cache[tx] = get_lineage(ncbi, tx)
+            bar()
+
+    ancestor_at_rank_cache = {}
+
+    with alive_bar(len(unique_perseus), title="Caching ancestors at ranks") as bar:
+        for tx in unique_perseus:
+            lineage = perseus_lineage_list_cache[tx]
+            lineage_ranks = ncbi.get_rank(lineage) if lineage else {}
+
+            rank_to_taxid = {}
+            for anc in reversed(lineage):   # deepest -> root
+                r = lineage_ranks.get(anc)
+                if r == 'kingdom':
+                    r = 'superkingdom'
+                if r in CANONICAL_RANKS and r not in rank_to_taxid:
+                    rank_to_taxid[r] = anc
+
+            ancestor_at_rank_cache[tx] = rank_to_taxid
             bar()
     
-    LOG.debug("Cached %d Kraken taxid lineages.", len(lineage_cache))
-    LOG.debug("Cached %d Perseus taxid ranks.", len(rank_cache))
+    LOG.debug("Cached %d Kraken taxid lineages", len(lineage_cache))
+    LOG.debug("Cached %d Perseus taxid ranks", len(rank_cache))
+    LOG.debug("Cached %d Perseus taxid lineages", len(perseus_lineage_list_cache))
+    LOG.debug("Cached %d Perseus taxid ancestor-at-rank mappings", len(ancestor_at_rank_cache))
     
     perseus_in_lineage = []
     perseus_predicted_rank = []
@@ -199,7 +229,50 @@ def run_filter(args):
         prefer_lineage=False,
         tie_breaker="sum_to_rank",
     )
+    
+    def get_final_taxid_from_cache(row):
+        base_taxid = row["perseus_taxid"]
+        chosen_rank = row["chosen_rank"]
+
+        if pd.isna(base_taxid) or pd.isna(chosen_rank):
+            return None
+
+        try:
+            base_taxid = int(base_taxid)
+        except Exception:
+            return None
+
+        return ancestor_at_rank_cache.get(base_taxid, {}).get(chosen_rank, base_taxid)
+    
+    filtered_df["perseus_taxid"] = filtered_df.apply(get_final_taxid_from_cache, axis=1)
+    
+    final_taxids = pd.Series(filtered_df["perseus_taxid"].dropna().unique()).astype(int).tolist()
+    name_cache = ncbi.get_taxid_translator(final_taxids) if final_taxids else {}
+    filtered_df["perseus_taxonomy"] = filtered_df["perseus_taxid"].map(name_cache)
+    
     LOG.info("Selected %d final rows", len(filtered_df))
+    
+    filtered_df.drop(
+        columns=["perseus_in_lineage", "perseus_predicted_rank", "chosen_rank_ix"],
+        inplace=True,
+        errors="ignore",
+    )
+
+    prob_cols = [f"prob_{rank}" for rank in CANONICAL_RANKS]
+    ordered_cols = [
+        "classified",
+        "sequence_id",
+        "kraken_taxonomy",
+        "length",
+        "kraken_taxid",
+        "perseus_taxid",
+        "perseus_taxonomy",
+        "chosen_rank",
+        "chosen_prob_at_rank",
+    ] + prob_cols
+
+    filtered_df = filtered_df[[c for c in ordered_cols if c in filtered_df.columns]]
+    
     filtered_output_path = args.output_path
     filtered_df.to_csv(filtered_output_path, sep="\t", index=False, float_format="%.6f")
     LOG.info("Filtered output saved to %s", filtered_output_path)
@@ -220,6 +293,8 @@ def main():
                         help="Path to the Kraken output file to be filtered.")
     parser.add_argument('output_path', type=str, 
                         help="Path to save the filtered Kraken output.")
+    parser.add_argument('db_dir', type=str, 
+                    help="Directory containing ETE3 taxonomy database ")
     parser.add_argument('--batch-size', type=int, default=128,
                         help="Batch size for processing sequences.")
     parser.add_argument('--cache-shards', type=int, default=1, help="Shards kept in RAM per worker")
