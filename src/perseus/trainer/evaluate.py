@@ -5,7 +5,6 @@ from alive_progress import alive_bar
 
 from perseus.utils.constants import CANONICAL_RANKS
 from perseus.losses.focal import FocalLoss
-from perseus.losses.bce import MaskedBCEWithLogitsLoss
 from perseus.losses.compute import compute_loss_from_batch
 from perseus.trainer.metrics import binary_auroc
 
@@ -29,7 +28,6 @@ def evaluate(model, loader, device, rank_idx_for_gate=None):
     """
     model.eval()
     crit = FocalLoss(alpha=1, gamma=2)
-    # crit = MaskedBCEWithLogitsLoss(reduction="mean")
 
     total_loss = 0.0
     total_n = 0
