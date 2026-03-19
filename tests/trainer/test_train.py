@@ -31,7 +31,7 @@ class DummyDataset(torch.utils.data.Dataset):
             "rank_index": torch.arange(self.n_ranks),     # shape: [n_ranks]
         }
 
-
+@pytest.mark.dev
 def test_train_runs_and_saves(tmp_path):
     m = importlib.import_module(MODULE)
     model = DummyModel()
@@ -42,7 +42,7 @@ def test_train_runs_and_saves(tmp_path):
     m.train(model, train_loader, val_loader, device, epochs=2, save_path=str(save_path))
     assert save_path.exists()
 
-
+@pytest.mark.dev
 def test_train_best_model_logic(tmp_path):
     m = importlib.import_module(MODULE)
     model = DummyModel()

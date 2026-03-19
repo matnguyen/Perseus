@@ -3,8 +3,7 @@ import torch
 import logging
 
 from perseus.losses.focal import (
-    FocalLoss,
-    LineageAwareFocalLoss
+    FocalLoss
 )
 from perseus.models.initialize import build_optimizer
 from perseus.losses.compute import compute_loss_from_batch

@@ -26,7 +26,7 @@ class DummyDataset(torch.utils.data.Dataset):
     def __getitem__(self, idx):
         return self.data[idx]
 
-
+@pytest.mark.dev
 def test_evaluate_empty_loader():
     m = importlib.import_module(MODULE)
     model = DummyModel()
