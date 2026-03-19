@@ -1,6 +1,7 @@
 import importlib
 import torch
 import os
+import pytest
 
 MODULE = "perseus.trainer.train"
 
