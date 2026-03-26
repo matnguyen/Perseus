@@ -8,7 +8,7 @@ def select_one_row_per_seq(
     ranks=None,
     thresholds=0.5,                  # float or dict {rank: thr}
     lineage_filter_col: str | None = "perseus_in_lineage",
-    prefer_lineage: bool = True,     # if True: restrict to lineage rows when available; else just tie-break
+    prefer_lineage: bool = False,     # if True: restrict to lineage rows when available; else just tie-break
     tie_breaker: str = "sum_to_rank" # "sum_to_rank" or "p_only" or "deep_then_sum"
 ):
     """
