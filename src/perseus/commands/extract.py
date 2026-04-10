@@ -135,7 +135,7 @@ def read_kraken_file(
     wrote_rows = 0
     wrote_files = 0
 
-    # Shared manifest list for shards
+    # Shared manifest list for shards    
     manager = mp.Manager()
     manifest_paths = manager.list() 
 
@@ -262,8 +262,7 @@ def main():
         LOG.error("Run `perseus setup --db-dir %s` first", args.db_dir)
         raise SystemExit(1) 
     
-    if args.threads == 1:
-        globals_mod.NCBI = get_ncbi(args.db_dir)  # Initialize NCBI in main process for single-threaded mode
+    globals_mod.NCBI = get_ncbi(args.db_dir)  # Initialize NCBI in main process for single-threaded mode
 
     # Run extraction
     read_kraken_file(
