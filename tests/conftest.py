@@ -10,13 +10,13 @@ CONSTANTS_MODULE = "perseus.utils.constants"
 # ---- Fake NCBI / ETE3 ----
 class FakeNCBI:
     """
-    Minimal behaviors used by your code:
+    Minimal behaviors 
       - get_lineage(int)
       - get_rank(list[int] or [int])
       - get_descendant_taxa(int, ...)
-    We set up a tiny tax graph:
+    Set up a tiny tax graph:
       superkingdom(2) -> phylum(10) -> class(20) -> order(30) -> family(40) -> genus(50) -> species(60)
-      Plus a sibling species(61) under the same genus(50).
+      Plus a sibling species(61) under the same genus(50)
     """
     def __init__(self, dbfile=None):
         self.dbfile = dbfile or "/tmp/fake.sqlite"
@@ -67,8 +67,8 @@ class FakeNCBI:
 @pytest.fixture(autouse=True)
 def patch_ncbi(monkeypatch):
     """
-    Patch the module's NCBI and NCBITaxa class so tests don't touch real ETE3 DB.
-    Also reset LRU caches between tests.
+    Patch the module's NCBI and NCBITaxa class so tests don't touch real ETE3 DB
+    Also reset LRU caches between tests
     """
     m = importlib.import_module(NCBI_MODULE)
     globals_mod = importlib.import_module(GLOBALS_MODULE)
@@ -100,7 +100,7 @@ def patch_ncbi(monkeypatch):
 
 @pytest.fixture
 def tmp_outdir(tmp_path, monkeypatch):
-    """Set the module's shared output directory to a tmp path for writer tests."""
+    """Set the module's shared output directory to a tmp path for writer tests"""
     m = importlib.import_module(MODULE)
     m._shared_out_dir = str(tmp_path)
     return tmp_path
