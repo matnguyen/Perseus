@@ -160,7 +160,7 @@ def run_filter(args):
     unique_truth = merged_df["kraken_taxid"].unique()
     
     ncbi = get_ncbi(args.db_dir)
-    LOG.info("Loaded ETE3 taxonomy database from %s", Path(args.db_dir).expanduser().resolve())
+    LOG.info("Loaded ETE4 taxonomy database from %s", Path(args.db_dir).expanduser().resolve())
     
     lineage_cache = {}
 
@@ -294,7 +294,7 @@ def main():
     parser.add_argument('output_path', type=str, 
                         help="Path to save the filtered Kraken output.")
     parser.add_argument('db_dir', type=str, 
-                    help="Directory containing ETE3 taxonomy database ")
+                    help="Directory containing ETE4 taxonomy database ")
     parser.add_argument('--batch-size', type=int, default=128,
                         help="Batch size for processing sequences.")
     parser.add_argument('--cache-shards', type=int, default=1, help="Shards kept in RAM per worker")

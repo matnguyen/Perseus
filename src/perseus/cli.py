@@ -41,7 +41,7 @@ def main():
         formatter_class=argparse.RawTextHelpFormatter,
         epilog="""
 Examples:
-    # Setup ETE3 taxonomy database for Perseus
+    # Setup ETE4 taxonomy database for Perseus
     perseus setup <path_to_directory>
 
     # Extract features for inference
@@ -64,14 +64,14 @@ Examples:
     setup_parser = subparsers.add_parser(
         'setup',
         parents=[common_parser],
-        help='Setup ETE3 taxonomic database for Perseus',
-        description=BANNER + "\nSetup ETE3 taxonomic database for Perseus",
+        help='Setup ETE4 taxonomic database for Perseus',
+        description=BANNER + "\nSetup ETE4 taxonomic database for Perseus",
         formatter_class=argparse.RawTextHelpFormatter,
     )
     setup_parser.add_argument('db_dir', type=str,
-                              help="Directory to store ETE3 taxonomy database")
+                              help="Directory to store ETE4 taxonomy database")
     setup_parser.add_argument('--update', action='store_true',
-                              help="Force update of the ETE3 taxonomy database even if it already exists")
+                              help="Force update of the ETE4 taxonomy database even if it already exists")
     
     # ==================== filter subcommand ====================
     filter_parser = subparsers.add_parser(
@@ -88,7 +88,7 @@ Examples:
     filter_parser.add_argument('output_path', type=str, 
                                help="Path for the output filtered Kraken file")
     filter_parser.add_argument('db_dir', type=str, 
-                               help="Directory containing ETE3 taxonomy database")
+                               help="Directory containing ETE4 taxonomy database")
     filter_parser.add_argument('--batch-size', type=int, default=128,
                                help=argparse.SUPPRESS)
     filter_parser.add_argument('--cache-shards', type=int, default=1,
@@ -123,7 +123,7 @@ Examples:
     extract_parser.add_argument('output_path', type=str,
                                 help="Path to output directory")
     extract_parser.add_argument('db_dir', type=str, 
-                                help="Directory containing ETE3 taxonomy database")
+                                help="Directory containing ETE4 taxonomy database")
     extract_parser.add_argument('--rows-per-chunk', type=int, default=20000,
                                 help=argparse.SUPPRESS)
     extract_parser.add_argument('--max-bins-per-seq', type=int, default=None,

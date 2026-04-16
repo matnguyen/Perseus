@@ -21,7 +21,7 @@ requirements:
     - pandas
     - pytorch
     - scikit-learn
-    - ete3
+    - ete4
     - pyarrow
     - alive-progress
 

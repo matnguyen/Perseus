@@ -236,7 +236,7 @@ def main():
     parser = ap.ArgumentParser(description='Chunked and parallel processing of Kraken output')
     parser.add_argument('file_path', type=str, help='Path to the Kraken output file')
     parser.add_argument('output_path', type=str, help='Path to output directory')
-    parser.add_argument('db_dir', type=str, help="Directory containing ETE3 taxonomy database ")
+    parser.add_argument('db_dir', type=str, help="Directory containing ETE4 taxonomy database ")
     
     parser.add_argument('--rows-per-chunk', type=int, default=20000, help='Rows per DataFrame chunk for pools')
     parser.add_argument('--max-bins-per-seq', type=int, default=None, help='Max bins per (seq_id, taxon) (default: None)')
@@ -258,7 +258,7 @@ def main():
     )
     
     if not os.path.exists(args.db_dir):
-        LOG.error("ETE3 taxonomy database not found at %s", args.db_dir / "taxa.sqlite")
+        LOG.error("ETE4 taxonomy database not found at %s", args.db_dir / "taxa.sqlite")
         LOG.error("Run `perseus setup --db-dir %s` first", args.db_dir)
         raise SystemExit(1) 
     
@@ -278,8 +278,8 @@ def main():
         min_tax_kmers=args.min_tax_kmers,
     )
         
-    # Cleanup ETE3 temp dirs
-    for tmpdir in glob.glob("/tmp/perseus_ete3db_*"):
+    # Cleanup ETE4 temp dirs
+    for tmpdir in glob.glob("/tmp/perseus_ete4db_*"):
         tmpdir = Path(tmpdir)
         if tmpdir.exists():
             shutil.rmtree(tmpdir)

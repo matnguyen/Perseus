@@ -2,7 +2,7 @@ import os
 import shutil
 import tempfile
 import atexit
-from ete3 import NCBITaxa
+from ete4 import NCBITaxa
 
 import perseus.utils.globals as globals_mod
 from perseus.utils.tax_utils import get_ncbi
@@ -25,11 +25,11 @@ def effective_nprocs():
         return max(1, os.cpu_count() or 1)
 
 
-def cleanup_ete3_tmpdir():
+def cleanup_ete4_tmpdir():
     """
-    Cleanup the temporary ete3 DB directory if it exists
+    Cleanup the temporary ete4 DB directory if it exists
     """
-    tmpdir = getattr(globals_mod, "_ete3_tmpdir", None)
+    tmpdir = getattr(globals_mod, "_ete4_tmpdir", None)
     print(f"[CLEANUP] Worker PID {os.getpid()} cleaning up temp dir: {tmpdir}")
     if tmpdir and os.path.exists(tmpdir):
         shutil.rmtree(tmpdir)
@@ -40,15 +40,15 @@ def cleanup_ete3_tmpdir():
 
 def _init_ncbi_private_db(db_path: str):
     """
-    Create a private copy of the ETE3 SQLite DB for this worker to avoid
+    Create a private copy of the ETE4 SQLite DB for this worker to avoid
     read-lock contention on NFS and reduce D-state stalls
     """
-    tmpdir = tempfile.mkdtemp(prefix="perseus_ete3db_")
+    tmpdir = tempfile.mkdtemp(prefix="perseus_ete4db_")
     dst_db = os.path.join(tmpdir, "taxa.sqlite")
     sqlite_path = os.path.join(db_path, "taxa.sqlite")
     shutil.copy2(sqlite_path, dst_db)
 
-    globals_mod._ete3_tmpdir = tmpdir
+    globals_mod._ete4_tmpdir = tmpdir
     globals_mod.NCBI = get_ncbi(db_path)
 
 
@@ -83,7 +83,7 @@ def init_worker(
     globals_mod._shared_mess_input_file = mess_input_file
 
     _init_ncbi_private_db(db_path)
-    atexit.register(cleanup_ete3_tmpdir)
+    atexit.register(cleanup_ete4_tmpdir)
 
 
 def _next_worker_part_name(ext="parquet"):

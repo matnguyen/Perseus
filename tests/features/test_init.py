@@ -66,42 +66,42 @@ def test_effective_nprocs_cpu_count_none_returns_one(monkeypatch):
     assert out == 1
 
 
-def test_cleanup_ete3_tmpdir_deletes_existing_dir(tmp_path):
+def test_cleanup_ete4_tmpdir_deletes_existing_dir(tmp_path):
     m = importlib.import_module(MODULE)
     globals_mod = importlib.import_module(GLOBALS_MODULE)
 
-    tmpdir = tmp_path / "ete3_tmp"
+    tmpdir = tmp_path / "ete4_tmp"
     tmpdir.mkdir()
     (tmpdir / "taxa.sqlite").write_text("db")
 
-    globals_mod._ete3_tmpdir = str(tmpdir)
+    globals_mod._ete4_tmpdir = str(tmpdir)
 
-    m.cleanup_ete3_tmpdir()
+    m.cleanup_ete4_tmpdir()
 
     assert not tmpdir.exists()
 
 
-def test_cleanup_ete3_tmpdir_noop_when_missing(tmp_path):
+def test_cleanup_ete4_tmpdir_noop_when_missing(tmp_path):
     m = importlib.import_module(MODULE)
     globals_mod = importlib.import_module(GLOBALS_MODULE)
 
     tmpdir = tmp_path / "does_not_exist"
-    globals_mod._ete3_tmpdir = str(tmpdir)
+    globals_mod._ete4_tmpdir = str(tmpdir)
 
-    m.cleanup_ete3_tmpdir()
+    m.cleanup_ete4_tmpdir()
 
     assert not tmpdir.exists()
 
 
-def test_cleanup_ete3_tmpdir_noop_when_none():
+def test_cleanup_ete4_tmpdir_noop_when_none():
     m = importlib.import_module(MODULE)
     globals_mod = importlib.import_module(GLOBALS_MODULE)
 
-    globals_mod._ete3_tmpdir = None
+    globals_mod._ete4_tmpdir = None
 
-    m.cleanup_ete3_tmpdir()
+    m.cleanup_ete4_tmpdir()
 
-    assert globals_mod._ete3_tmpdir is None
+    assert globals_mod._ete4_tmpdir is None
 
 
 def test_init_ncbi_private_db_copies_sqlite_and_sets_globals(monkeypatch, tmp_path):
@@ -119,7 +119,7 @@ def test_init_ncbi_private_db_copies_sqlite_and_sets_globals(monkeypatch, tmp_pa
 
     m._init_ncbi_private_db(str(db_path))
 
-    tmpdir = Path(globals_mod._ete3_tmpdir)
+    tmpdir = Path(globals_mod._ete4_tmpdir)
     copied_sqlite = tmpdir / "taxa.sqlite"
 
     assert tmpdir.exists()
@@ -178,7 +178,7 @@ def test_init_worker_sets_globals_and_registers_cleanup(monkeypatch, tmp_path):
     assert globals_mod._shared_mess_input_file == "input.tsv"
 
     assert calls["db_path"] == "/fake/db"
-    assert calls["registered"] is m.cleanup_ete3_tmpdir
+    assert calls["registered"] is m.cleanup_ete4_tmpdir
 
 
 def test_next_worker_part_name_increments(monkeypatch):

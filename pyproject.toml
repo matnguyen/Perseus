@@ -38,7 +38,7 @@ dependencies = [
   "scikit-learn",
   "pyarrow",
   "torch",
-  "ete3",
+  "ete4",
   "alive-progress",
   "legacy-cgi",
 ]

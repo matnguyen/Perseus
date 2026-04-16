@@ -1,7 +1,7 @@
 import re
 import logging
 from functools import lru_cache
-from ete3 import NCBITaxa
+from ete4 import NCBITaxa
 from pathlib import Path
 
 import perseus.utils.globals as globals
@@ -17,7 +17,7 @@ def get_ncbi(db_dir):
     sqlite_path = db_dir / "taxa.sqlite"
 
     if not sqlite_path.exists():
-        logger.error("ETE3 taxonomy database not found at %s", sqlite_path)
+        logger.error("ETE4 taxonomy database not found at %s", sqlite_path)
         logger.error("Run `perseus setup --db-dir %s` first", db_dir)
         raise SystemExit(1)
 
