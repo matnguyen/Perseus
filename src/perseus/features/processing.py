@@ -11,7 +11,7 @@ from perseus.features.features import compute_bin_features
 from perseus.utils.constants import CANONICAL_RANKS
 from perseus.utils.tax_utils import get_ncbi
 from perseus.features.init import (
-    _init_ncbi_private_db,
+    _init_ete4_private_db,
     effective_nprocs
 )
 from perseus.utils.io_utils import (
@@ -194,7 +194,7 @@ def build_tax_context(file_path, db_path, rows_per_chunk=1000, prefetch_buf=64, 
         return tax_context
 
     logger.info(f"Using {nprocs} processes for tax_context build.")
-    with mp.Pool(processes=nprocs, maxtasksperchild=200, initializer=_init_ncbi_private_db, initargs=(db_path,)) as pool:
+    with mp.Pool(processes=nprocs, maxtasksperchild=200, initializer=_init_ete4_private_db, initargs=(db_path,)) as pool:
         it = pool.imap_unordered(
             extract_tax_context_chunk,
             prefetch(reader, bufsize=prefetch_buf),

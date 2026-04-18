@@ -2,10 +2,12 @@ import os
 import shutil
 import tempfile
 import atexit
-from ete4 import NCBITaxa
 
 import perseus.utils.globals as globals_mod
-from perseus.utils.tax_utils import get_ncbi
+from perseus.utils.tax_utils import (
+    get_ncbi,
+    get_gtdb                                     
+)
 
 def effective_nprocs():
     """
@@ -38,7 +40,7 @@ def cleanup_ete4_tmpdir():
         print(f"[CLEANUP] Temp dir not found or already deleted: {tmpdir}")
 
 
-def _init_ncbi_private_db(db_path: str):
+def _init_ete4_private_db(db_path: str):
     """
     Create a private copy of the ETE4 SQLite DB for this worker to avoid
     read-lock contention on NFS and reduce D-state stalls
@@ -49,7 +51,12 @@ def _init_ncbi_private_db(db_path: str):
     shutil.copy2(sqlite_path, dst_db)
 
     globals_mod._ete4_tmpdir = tmpdir
-    globals_mod.NCBI = get_ncbi(db_path)
+    if globals_mod.DB_TYPE == "ncbi":
+        globals_mod.DB = get_ncbi(db_path)
+    elif globals_mod.DB_TYPE == "gtdb":
+        globals_mod.DB = get_gtdb(db_path)
+    else:
+        raise ValueError(f"Unsupported DB_TYPE: {globals_mod.DB_TYPE}")
 
 
 def init_worker(
@@ -62,9 +69,7 @@ def init_worker(
     shard_size=4096, 
     target_length=1024,
     to_dtype="float32",
-    manifest_paths=None, 
-    mess_true_file=None, 
-    mess_input_file=None,
+    manifest_paths=None,
 ):
     """
     Init for the feature-extraction pool: set globals + private NCBI DB copy
@@ -78,11 +83,9 @@ def init_worker(
     globals_mod._shared_shard_size     = int(shard_size)
     globals_mod._shared_target_length  = int(target_length)
     globals_mod._shared_to_dtype       = str(to_dtype)
-    globals_mod._shared_manifest_paths = manifest_paths  # Manager.list shared across workers
-    globals_mod._shared_mess_true_file = mess_true_file
-    globals_mod._shared_mess_input_file = mess_input_file
+    globals_mod._shared_manifest_paths = manifest_paths  
 
-    _init_ncbi_private_db(db_path)
+    _init_ete4_private_db(db_path)
     atexit.register(cleanup_ete4_tmpdir)
 
 

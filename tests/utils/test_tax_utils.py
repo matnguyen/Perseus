@@ -17,7 +17,7 @@ def test_normalize_int_with_lineage(monkeypatch):
         assert tid == 123
         return [1, 2, 1234]
 
-    globals_mod.NCBI = type("NCBIStub", (), {"get_lineage": staticmethod(fake_get_lineage)})
+    globals_mod.DB = type("NCBIStub", (), {"get_lineage": staticmethod(fake_get_lineage)})
 
     m.normalize_taxid.cache_clear()
     out = m.normalize_taxid(123)
@@ -86,6 +86,8 @@ Tests for fetch_maps
 def test_fetch_maps_good_path(monkeypatch):
     m = importlib.import_module(MODULE)
     constants_mod = importlib.import_module(CONSTANTS_MODULE)
+    globals_mod = importlib.import_module(GLOBALS_MODULE)
+    globals_mod.DB_TYPE = "ncbi"
 
     class FakeNCBI:
         def get_lineage(self, tid):
@@ -133,6 +135,8 @@ def test_fetch_maps_good_path(monkeypatch):
 
 def test_fetch_maps_error_path(monkeypatch):
     m = importlib.import_module(MODULE)
+    globals_mod = importlib.import_module(GLOBALS_MODULE)
+    globals_mod.DB_TYPE = "ncbi"
     
     class RaisingNCBI:
         def get_lineage(self, tid):
@@ -167,7 +171,7 @@ def test_get_lineage_path_int_taxid():
 
     m.get_lineage_path.cache_clear()
     tid = 60
-    expected = globals_mod.NCBI.get_lineage(tid)
+    expected = globals_mod.DB.get_lineage(tid)
     out = m.get_lineage_path(tid)
 
     assert out == expected
@@ -183,7 +187,7 @@ def test_get_lineage_path_string_taxid():
     globals_mod = importlib.import_module(GLOBALS_MODULE)
 
     m.get_lineage_path.cache_clear()
-    expected = globals_mod.NCBI.get_lineage(60)
+    expected = globals_mod.DB.get_lineage(60)
     out = m.get_lineage_path("60")
 
     assert out == expected
@@ -200,7 +204,7 @@ def test_get_lineage_path_on_exception(monkeypatch):
         raise RuntimeError("DB failure")
 
     # patch the global NCBI used inside get_lineage_path
-    globals_mod.NCBI.get_lineage = boom
+    globals_mod.DB.get_lineage = boom
     m.get_lineage_path.cache_clear()
 
     out = m.get_lineage_path(999999)
@@ -222,7 +226,7 @@ def test_get_lineage_path_caching(monkeypatch):
     def boom(tid):
         raise RuntimeError("should not be called if cached")
 
-    globals_mod.NCBI.get_lineage = boom
+    globals_mod.DB.get_lineage = boom
 
     second = m.get_lineage_path(60)
     assert second == first
@@ -245,7 +249,7 @@ def test_lineage_to_rank_map_basic():
     globals_mod = importlib.import_module(GLOBALS_MODULE)
     constants_mod = importlib.import_module(CONSTANTS_MODULE)
 
-    lineage = globals_mod.NCBI.get_lineage(60)  # from FakeNCBI in conftest
+    lineage = globals_mod.DB.get_lineage(60)  # from FakeNCBI in conftest
     rank_map = m.lineage_to_rank_map(lineage, constants_mod.CANONICAL_RANKS)
 
     assert rank_map["superkingdom"] == 2
@@ -326,7 +330,7 @@ def test_get_canonical_taxid_for_rank_basic():
     mapping = m.get_canonical_taxid_for_rank(
         60,
         constants_mod.CANONICAL_RANKS,
-        globals_mod.NCBI,      
+        globals_mod.DB,      
     )
 
     assert set(mapping.keys()) == set(m.CANONICAL_RANKS)
@@ -351,7 +355,7 @@ def test_get_canonical_taxid_for_rank_missing_taxid(monkeypatch):
         raise RuntimeError("nope")
 
     # only patch get_lineage; get_rank won’t be reached
-    globals_mod.NCBI.get_lineage = boom
+    globals_mod.DB.get_lineage = boom
 
     mapping = m.get_canonical_taxid_for_rank(
         999999,

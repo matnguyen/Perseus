@@ -3,7 +3,8 @@ _shared_tax_context    = None
 _shared_lineage_map    = None
 _shared_descendant_map = None
 _shared_canonical_map  = None
-NCBI                   = None  # each worker gets its own handle (and its own DB copy)
+DB                     = None  # each worker gets its own handle (and its own DB copy)
+DB_TYPE                = None  # "ncbi" or "gtdb"
 _shared_out_dir        = None
 _worker_part_idx       = 0
 

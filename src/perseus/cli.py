@@ -72,6 +72,8 @@ Examples:
                               help="Directory to store ETE4 taxonomy database")
     setup_parser.add_argument('--update', action='store_true',
                               help="Force update of the ETE4 taxonomy database even if it already exists")
+    setup_parser.add_argument('--taxonomy', type=str, default='ncbi',
+                              help="Taxonomy source to use: 'ncbi' or 'gtdb' (default: 'ncbi')")
     
     # ==================== filter subcommand ====================
     filter_parser = subparsers.add_parser(
@@ -176,6 +178,9 @@ Examples:
         sys.argv = ['setup', args.db_dir]
         if args.update:
             sys.argv.append('--update')
+        if args.taxonomy is not None:
+            sys.argv.append('--taxonomy')
+            sys.argv.append(args.taxonomy)
         runpy.run_module('perseus.commands.setup', run_name='__main__')
         
     elif args.command == 'filter':

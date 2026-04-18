@@ -64,7 +64,7 @@ def compute_bin_features(kmer_tax_counts, pred_lineage, canonical_ranks):
     Returns:
         list: Feature vector
     """
-    lineage_ranks = globals.NCBI.get_rank(pred_lineage)
+    lineage_ranks = globals.DB.get_rank(pred_lineage)
     lineage_at_rank = {r: None for r in canonical_ranks}
     for t in pred_lineage:
         raw = lineage_ranks.get(t)
@@ -92,7 +92,7 @@ def compute_bin_features(kmer_tax_counts, pred_lineage, canonical_ranks):
 
         kmer_ancestors = canonical_map.get(taxid)
         if kmer_ancestors is None:
-            kmer_ancestors = get_canonical_taxid_for_rank(taxid, canonical_ranks, globals.NCBI)
+            kmer_ancestors = get_canonical_taxid_for_rank(taxid, canonical_ranks, globals.DB)
 
         kmer_rank_raw = get_taxid_rank_raw(taxid)
         kmer_rank = canonicalize_rank(kmer_rank_raw)

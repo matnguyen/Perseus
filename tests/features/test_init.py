@@ -104,9 +104,10 @@ def test_cleanup_ete4_tmpdir_noop_when_none():
     assert globals_mod._ete4_tmpdir is None
 
 
-def test_init_ncbi_private_db_copies_sqlite_and_sets_globals(monkeypatch, tmp_path):
+def test_init_ete4_private_db_copies_sqlite_and_sets_globals_ncbi(monkeypatch, tmp_path):
     m = importlib.import_module(MODULE)
     globals_mod = importlib.import_module(GLOBALS_MODULE)
+    globals_mod.DB_TYPE = 'ncbi'
 
     db_path = tmp_path / "db"
     db_path.mkdir()
@@ -117,7 +118,7 @@ def test_init_ncbi_private_db_copies_sqlite_and_sets_globals(monkeypatch, tmp_pa
 
     monkeypatch.setattr(m, "get_ncbi", lambda path: fake_ncbi)
 
-    m._init_ncbi_private_db(str(db_path))
+    m._init_ete4_private_db(str(db_path))
 
     tmpdir = Path(globals_mod._ete4_tmpdir)
     copied_sqlite = tmpdir / "taxa.sqlite"
@@ -125,7 +126,32 @@ def test_init_ncbi_private_db_copies_sqlite_and_sets_globals(monkeypatch, tmp_pa
     assert tmpdir.exists()
     assert copied_sqlite.exists()
     assert copied_sqlite.read_text() == "fake sqlite db"
-    assert globals_mod.NCBI is fake_ncbi
+    assert globals_mod.DB is fake_ncbi
+
+
+def test_init_ete4_private_db_copies_sqlite_and_sets_globals_gtdb(monkeypatch, tmp_path):
+    m = importlib.import_module(MODULE)
+    globals_mod = importlib.import_module(GLOBALS_MODULE)
+    globals_mod.DB_TYPE = 'gtdb'
+
+    db_path = tmp_path / "db"
+    db_path.mkdir()
+    sqlite_src = db_path / "taxa.sqlite"
+    sqlite_src.write_text("fake sqlite db")
+
+    fake_gtdb = object()
+
+    monkeypatch.setattr(m, "get_gtdb", lambda path: fake_gtdb)
+
+    m._init_ete4_private_db(str(db_path))
+
+    tmpdir = Path(globals_mod._ete4_tmpdir)
+    copied_sqlite = tmpdir / "taxa.sqlite"
+
+    assert tmpdir.exists()
+    assert copied_sqlite.exists()
+    assert copied_sqlite.read_text() == "fake sqlite db"
+    assert globals_mod.DB is fake_gtdb
 
 
 def test_init_worker_sets_globals_and_registers_cleanup(monkeypatch, tmp_path):
@@ -134,13 +160,13 @@ def test_init_worker_sets_globals_and_registers_cleanup(monkeypatch, tmp_path):
 
     calls = {"db_path": None, "registered": None}
 
-    def fake_init_ncbi_private_db(db_path):
+    def fake_init_ete4_private_db(db_path):
         calls["db_path"] = db_path
 
     def fake_register(fn):
         calls["registered"] = fn
 
-    monkeypatch.setattr(m, "_init_ncbi_private_db", fake_init_ncbi_private_db)
+    monkeypatch.setattr(m, "_init_ete4_private_db", fake_init_ete4_private_db)
     monkeypatch.setattr(m.atexit, "register", fake_register)
 
     tc = {"a": 1}
@@ -160,9 +186,7 @@ def test_init_worker_sets_globals_and_registers_cleanup(monkeypatch, tmp_path):
         shard_size=5000,
         target_length=2048,
         to_dtype="float16",
-        manifest_paths=manifest_paths,
-        mess_true_file="truth.tsv",
-        mess_input_file="input.tsv",
+        manifest_paths=manifest_paths
     )
 
     assert globals_mod._shared_tax_context == tc
@@ -174,8 +198,6 @@ def test_init_worker_sets_globals_and_registers_cleanup(monkeypatch, tmp_path):
     assert globals_mod._shared_target_length == 2048
     assert globals_mod._shared_to_dtype == "float16"
     assert globals_mod._shared_manifest_paths == manifest_paths
-    assert globals_mod._shared_mess_true_file == "truth.tsv"
-    assert globals_mod._shared_mess_input_file == "input.tsv"
 
     assert calls["db_path"] == "/fake/db"
     assert calls["registered"] is m.cleanup_ete4_tmpdir

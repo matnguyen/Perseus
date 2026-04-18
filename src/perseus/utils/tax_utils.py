@@ -1,8 +1,12 @@
 import re
 import logging
+import json
 from functools import lru_cache
-from ete4 import NCBITaxa
 from pathlib import Path
+from ete4 import (
+    NCBITaxa,
+    GTDBTaxa
+)
 
 import perseus.utils.globals as globals
 from perseus.utils.constants import (
@@ -12,16 +16,47 @@ from perseus.utils.constants import (
 
 logger = logging.getLogger(__name__)
 
+def detect_taxonomy_from_dir(db_dir: str):
+    p = Path(db_dir) / "taxonomy.json"
+    if not p.exists():
+        return None
+    try:
+        data = json.loads(p.read_text())
+        tx = data.get("taxonomy")
+        if tx:
+            db_type = tx.lower()
+            globals.DB_TYPE = db_type
+            return db_type
+    except Exception:
+        logger.warning(f"Failed to read taxonomy type from {p}, defaulting to None.")
+        return None
+    logger.warning(f"Taxonomy type not found in {p}, defaulting to None.")
+    return None
+
+
 def get_ncbi(db_dir):
     db_dir = Path(db_dir).expanduser().resolve()
     sqlite_path = db_dir / "taxa.sqlite"
 
     if not sqlite_path.exists():
-        logger.error("ETE4 taxonomy database not found at %s", sqlite_path)
+        logger.error("ETE4 NCBI taxonomy database not found at %s", sqlite_path)
         logger.error("Run `perseus setup --db-dir %s` first", db_dir)
         raise SystemExit(1)
 
     return NCBITaxa(dbfile=str(sqlite_path))
+
+
+def get_gtdb(db_dir):
+    db_dir = Path(db_dir).expanduser().resolve()
+    sqlite_path = db_dir / "taxa.sqlite"
+
+    if not sqlite_path.exists():
+        logger.error("ETE4 GTDB taxonomy database not found at %s", sqlite_path)
+        logger.error("Run `perseus setup --db-dir %s --taxonomy gtdb` first", db_dir)
+        raise SystemExit(1)
+
+    return GTDBTaxa(dbfile=str(sqlite_path))
+
 
 def canonicalize_rank(rank):
     """
@@ -47,21 +82,21 @@ def canonicalize_rank(rank):
     return None
 
 
-def get_canonical_taxid_for_rank(taxid, canonical_ranks, ncbi):
+def get_canonical_taxid_for_rank(taxid, canonical_ranks, db):
     """
     Get the canonical taxid for each rank in canonical_ranks for a given taxid
 
     Args:
         taxid (int): Taxonomic ID
         canonical_ranks (list): List of canonical ranks
-        ncbi: NCBI taxonomy database object
+        db: ETE4 taxonomy database object
 
     Returns:
         dict: Mapping from rank to canonical taxid
     """
     try:
-        lineage = ncbi.get_lineage(int(taxid))
-        ranks = ncbi.get_rank(lineage)
+        lineage = db.get_lineage(int(taxid))
+        ranks = db.get_rank(lineage)
         taxid_at_rank = {r: None for r in canonical_ranks}
         for t in lineage:
             raw_rank = ranks.get(t)
@@ -84,15 +119,21 @@ def fetch_maps(args):
         tuple: (lineage_map, canonical_map, descendant_map)
     """
     tid, db_dir = args
-    ncbi = get_ncbi(db_dir)
+    if globals.DB_TYPE == "gtdb":
+        db = get_gtdb(db_dir)
+    elif globals.DB_TYPE == "ncbi":
+        db = get_ncbi(db_dir)
+    else:
+        logger.error("Unsupported taxonomy database type: %s", globals.DB_TYPE)
+        raise SystemExit(1)
 
     try:
-        lineage = ncbi.get_lineage(int(tid))
-        descendants = set(ncbi.get_descendant_taxa(int(tid)))
-        canonical_taxid = get_canonical_taxid_for_rank(tid, CANONICAL_RANKS, ncbi)
+        lineage = db.get_lineage(int(tid))
+        descendants = set(db.get_descendant_taxa(int(tid)))
+        canonical_taxid = get_canonical_taxid_for_rank(tid, CANONICAL_RANKS, db)
         return tid, lineage, descendants, canonical_taxid
     except Exception:
-        logger.warning(f"Taxid {tid} not found in NCBI database, skipping.")
+        logger.warning(f"Taxid {tid} not found in ETE4 database, skipping.")
         return tid, [], set(), {r: None for r in CANONICAL_RANKS}
 
 
@@ -108,7 +149,7 @@ def get_taxid_rank_raw(taxid: int):
         str: Raw rank string
     """
     try:
-        return globals.NCBI.get_rank([int(taxid)]).get(int(taxid), None)
+        return globals.DB.get_rank([int(taxid)]).get(int(taxid), None)
     except Exception:
         logger.warning(f"Taxid {taxid} not found in NCBI database, returning None for raw rank.")
         return None
@@ -128,7 +169,7 @@ def lineage_to_rank_map(lineage, canonical_ranks):
 
     if not lineage:
         return {r: None for r in canonical_ranks}
-    ranks = globals.NCBI.get_rank(lineage)
+    ranks = globals.DB.get_rank(lineage)
     out = {r: None for r in canonical_ranks}
     for t in lineage:
         can = canonicalize_rank(ranks.get(t))
@@ -165,9 +206,9 @@ def cached_get_rank(taxid):
         str: Rank string
     """
     try:
-        return globals.NCBI.get_rank([taxid])
+        return globals.DB.get_rank([taxid])
     except Exception:
-        logger.warning(f"Taxid {taxid} not found in NCBI database, returning empty rank mapping.")
+        logger.warning(f"Taxid {taxid} not found in ETE4 database, returning empty rank mapping.")
         return {}
 
 @lru_cache(maxsize=100000)
@@ -182,9 +223,9 @@ def get_lineage_path(taxid):
         list[int]: List of taxids in the lineage
     """
     try:
-        return globals.NCBI.get_lineage(int(taxid))
+        return globals.DB.get_lineage(int(taxid))
     except Exception:
-        logger.warning(f"Taxid {taxid} not found in NCBI database, returning empty lineage.")
+        logger.warning(f"Taxid {taxid} not found in ETE4 database, returning empty lineage.")
         return []
 
 @lru_cache(maxsize=100000)
@@ -199,9 +240,9 @@ def get_taxid_to_rank(taxid):
         dict: Mapping from taxid to rank
     """
     try:
-        return globals.NCBI.get_rank([int(taxid)]).get(int(taxid), None)
+        return globals.DB.get_rank([int(taxid)]).get(int(taxid), None)
     except Exception:
-        logger.warning(f"Taxid {taxid} not found in NCBI database, returning None for rank.")
+        logger.warning(f"Taxid {taxid} not found in ETE4 database, returning None for rank.")
         return None
 
 @lru_cache(maxsize=100000)
@@ -216,9 +257,9 @@ def get_descendants(taxid):
         list: List of descendant taxids
     """
     try:
-        return globals.NCBI.get_descendant_taxa(int(taxid), collapse_subspecies=False, intermediate_nodes=True)
+        return globals.DB.get_descendant_taxa(int(taxid), collapse_subspecies=False, intermediate_nodes=True)
     except Exception:
-        logger.warning(f"Taxid {taxid} not found in NCBI database, returning empty descendant list.")
+        logger.warning(f"Taxid {taxid} not found in ETE4 database, returning empty descendant list.")
         return []
 
 @lru_cache(maxsize=200000)
@@ -237,8 +278,8 @@ def normalize_taxid(tid):
     except Exception:
         tid = int(tid.split()[-1].strip('()'))
     try:
-        lin = globals.NCBI.get_lineage(tid)
+        lin = globals.DB.get_lineage(tid)
         return int(lin[-1]) if lin else tid
     except Exception:
-        logger.warning(f"Taxid {tid} not found in NCBI database, returning original taxid.")
+        logger.warning(f"Taxid {tid} not found in ETE4 database, returning original taxid.")
         return tid

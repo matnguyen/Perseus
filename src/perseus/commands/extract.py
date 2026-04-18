@@ -15,7 +15,9 @@ from pathlib import Path
 import perseus.utils.globals as globals_mod
 from perseus.utils.constants import CANONICAL_RANKS, N_CHANNELS
 from perseus.utils.tax_utils import (
+    detect_taxonomy_from_dir,
     get_ncbi,
+    get_gtdb,
     normalize_taxid,
     fetch_maps
 )
@@ -258,11 +260,21 @@ def main():
     )
     
     if not os.path.exists(args.db_dir):
-        LOG.error("ETE4 taxonomy database not found at %s", args.db_dir / "taxa.sqlite")
+        LOG.error("ETE4 taxonomy database not found at %s", os.path.join(args.db_dir,"taxa.sqlite"))
         LOG.error("Run `perseus setup --db-dir %s` first", args.db_dir)
         raise SystemExit(1) 
     
-    globals_mod.NCBI = get_ncbi(args.db_dir)  # Initialize NCBI in main process for single-threaded mode
+    db_type = detect_taxonomy_from_dir(args.db_dir)
+    globals_mod.DB_TYPE = db_type
+    if db_type == "gtdb":
+        LOG.info("Detected GTDB taxonomy database in %s", args.db_dir)
+        globals_mod.DB = get_gtdb(args.db_dir)
+    elif db_type == "ncbi":
+        LOG.info("Detected NCBI taxonomy database in %s", args.db_dir)
+        globals_mod.DB = get_ncbi(args.db_dir)  
+    else:
+        LOG.error("No recognizable taxonomy database found in %s", args.db_dir)
+        raise SystemExit(1)
 
     # Run extraction
     read_kraken_file(
