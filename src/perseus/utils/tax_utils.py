@@ -95,8 +95,15 @@ def get_canonical_taxid_for_rank(taxid, canonical_ranks, db):
         dict: Mapping from rank to canonical taxid
     """
     try:
-        lineage = db.get_lineage(int(taxid))
-        ranks = db.get_rank(lineage)
+        if globals.DB_TYPE == "gtdb":
+            lineage = db._get_lineage(int(taxid))
+            ranks = db._get_id2rank(lineage)
+        elif globals.DB_TYPE == "ncbi":
+            lineage = db.get_lineage(int(taxid))
+            ranks = db.get_rank(lineage)
+        else:
+            logger.error("Unsupported taxonomy database type: %s", globals.DB_TYPE)
+            raise SystemExit(1)
         taxid_at_rank = {r: None for r in canonical_ranks}
         for t in lineage:
             raw_rank = ranks.get(t)
@@ -128,7 +135,13 @@ def fetch_maps(args):
         raise SystemExit(1)
 
     try:
-        lineage = db.get_lineage(int(tid))
+        if globals.DB_TYPE == "gtdb":
+            lineage = db._get_lineage(int(tid))
+        elif globals.DB_TYPE == "ncbi":
+            lineage = db.get_lineage(int(tid))
+        else:
+            logger.error("Unsupported taxonomy database type: %s", globals.DB_TYPE)
+            raise SystemExit(1)
         descendants = set(db.get_descendant_taxa(int(tid)))
         canonical_taxid = get_canonical_taxid_for_rank(tid, CANONICAL_RANKS, db)
         return tid, lineage, descendants, canonical_taxid
@@ -149,7 +162,13 @@ def get_taxid_rank_raw(taxid: int):
         str: Raw rank string
     """
     try:
-        return globals.DB.get_rank([int(taxid)]).get(int(taxid), None)
+        if globals.DB_TYPE == "gtdb":
+            return globals.DB._get_id2rank([int(taxid)]).get(int(taxid), None)
+        elif globals.DB_TYPE == "ncbi":
+            return globals.DB.get_rank([int(taxid)]).get(int(taxid), None)
+        else:
+            logger.error("Unsupported taxonomy database type: %s", globals.DB_TYPE)
+            raise SystemExit(1)
     except Exception:
         logger.warning(f"Taxid {taxid} not found in NCBI database, returning None for raw rank.")
         return None
@@ -169,7 +188,13 @@ def lineage_to_rank_map(lineage, canonical_ranks):
 
     if not lineage:
         return {r: None for r in canonical_ranks}
-    ranks = globals.DB.get_rank(lineage)
+    if globals.DB_TYPE == "gtdb":
+        ranks = globals.DB._get_id2rank(lineage)
+    elif globals.DB_TYPE == "ncbi":
+        ranks = globals.DB.get_rank(lineage)
+    else:
+        logger.error("Unsupported taxonomy database type: %s", globals.DB_TYPE)
+        raise SystemExit(1)
     out = {r: None for r in canonical_ranks}
     for t in lineage:
         can = canonicalize_rank(ranks.get(t))
@@ -206,7 +231,13 @@ def cached_get_rank(taxid):
         str: Rank string
     """
     try:
-        return globals.DB.get_rank([taxid])
+        if globals.DB_TYPE == "gtdb":
+            return globals.DB._get_id2rank([taxid])
+        elif globals.DB_TYPE == "ncbi":
+            return globals.DB.get_rank([taxid])
+        else:
+            logger.error("Unsupported taxonomy database type: %s", globals.DB_TYPE)
+            raise SystemExit(1)
     except Exception:
         logger.warning(f"Taxid {taxid} not found in ETE4 database, returning empty rank mapping.")
         return {}
@@ -223,7 +254,14 @@ def get_lineage_path(taxid):
         list[int]: List of taxids in the lineage
     """
     try:
-        return globals.DB.get_lineage(int(taxid))
+        if globals.DB_TYPE == "gtdb":
+            lineage = globals.DB._get_lineage(int(taxid))
+        elif globals.DB_TYPE == "ncbi":
+            lineage = globals.DB.get_lineage(int(taxid))
+        else:
+            logger.error("Unsupported taxonomy database type: %s", globals.DB_TYPE)
+            raise SystemExit(1)
+        return lineage
     except Exception:
         logger.warning(f"Taxid {taxid} not found in ETE4 database, returning empty lineage.")
         return []
@@ -240,7 +278,13 @@ def get_taxid_to_rank(taxid):
         dict: Mapping from taxid to rank
     """
     try:
-        return globals.DB.get_rank([int(taxid)]).get(int(taxid), None)
+        if globals.DB_TYPE == "gtdb":
+            return globals.DB._get_id2rank([int(taxid)]).get(int(taxid), None)
+        elif globals.DB_TYPE == "ncbi":
+            return globals.DB.get_rank([int(taxid)]).get(int(taxid), None)
+        else:
+            logger.error("Unsupported taxonomy database type: %s", globals.DB_TYPE)
+            raise SystemExit(1)
     except Exception:
         logger.warning(f"Taxid {taxid} not found in ETE4 database, returning None for rank.")
         return None
@@ -278,7 +322,13 @@ def normalize_taxid(tid):
     except Exception:
         tid = int(tid.split()[-1].strip('()'))
     try:
-        lin = globals.DB.get_lineage(tid)
+        if globals.DB_TYPE == "gtdb":
+            lin = globals.DB._get_lineage(tid)
+        elif globals.DB_TYPE == "ncbi":
+            lin = globals.DB.get_lineage(tid)
+        else:
+            logger.error("Unsupported taxonomy database type: %s", globals.DB_TYPE)
+            raise SystemExit(1)
         return int(lin[-1]) if lin else tid
     except Exception:
         logger.warning(f"Taxid {tid} not found in ETE4 database, returning original taxid.")

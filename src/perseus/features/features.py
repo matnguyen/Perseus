@@ -64,7 +64,13 @@ def compute_bin_features(kmer_tax_counts, pred_lineage, canonical_ranks):
     Returns:
         list: Feature vector
     """
-    lineage_ranks = globals.DB.get_rank(pred_lineage)
+    if globals.DB_TYPE == 'gtdb':
+        lineage_ranks = globals.DB._get_id2rank(pred_lineage)
+    elif globals.DB_TYPE == 'ncbi':
+        lineage_ranks = globals.DB.get_rank(pred_lineage)
+    else:
+        logger.error("Unsupported taxonomy database type: %s", globals.DB_TYPE)
+        raise SystemExit(1)
     lineage_at_rank = {r: None for r in canonical_ranks}
     for t in pred_lineage:
         raw = lineage_ranks.get(t)

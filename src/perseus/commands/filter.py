@@ -7,10 +7,14 @@ import pandas as pd
 from alive_progress import alive_bar
 from pathlib import Path
 
-from perseus.utils.tax_utils import get_ncbi
 from perseus.utils.constants import CANONICAL_RANKS
 from perseus.data.dataset import build_loader
 from perseus.utils.filter_utils import select_one_row_per_seq
+from perseus.utils.tax_utils import (
+    detect_taxonomy_from_dir,
+    get_ncbi,
+    get_gtdb,
+)
 from perseus.models.initialize import (
     make_model,
     load_model,
@@ -19,16 +23,22 @@ from perseus.models.initialize import (
 
 LOG = logging.getLogger(__name__)
 
-def get_rank(ncbi, taxid):
+def get_rank(ncbi, taxid, db_type):
     try:
-        rank = ncbi.get_rank([taxid])[taxid]
+        if db_type == "gtdb":
+            rank = ncbi._get_id2rank([taxid])[taxid]
+        else:
+            rank = ncbi.get_rank([taxid])[taxid]
     except KeyError:
         rank = 'no_rank'
     return rank
 
-def get_lineage(ncbi, taxid):
+def get_lineage(db, taxid, db_type):
     try:
-        lineage = ncbi.get_lineage(taxid)
+        if db_type == "gtdb":
+            lineage = db._get_lineage(taxid)
+        else:
+            lineage = db.get_lineage(taxid)
     except ValueError:
         lineage = []
     return lineage
@@ -40,6 +50,17 @@ def run_filter(args):
     LOG.info("Output path: %s", args.output_path)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     LOG.info("Using device: %s", device)
+    
+    db_type = detect_taxonomy_from_dir(args.db_dir)
+    if db_type == "gtdb":
+        LOG.info("Detected GTDB taxonomy database in %s", args.db_dir)
+        db = get_gtdb(args.db_dir)
+    elif db_type == "ncbi":
+        LOG.info("Detected NCBI taxonomy database in %s", args.db_dir)
+        db = get_ncbi(args.db_dir)  
+    else:
+        LOG.error("No recognizable taxonomy database found in %s", args.db_dir)
+        raise SystemExit(1)
     
     LOG.debug("torch.cuda.is_available(): %s", torch.cuda.is_available())
     if device.type == "cuda":
@@ -159,14 +180,11 @@ def run_filter(args):
     
     unique_truth = merged_df["kraken_taxid"].unique()
     
-    ncbi = get_ncbi(args.db_dir)
-    LOG.info("Loaded ETE4 taxonomy database from %s", Path(args.db_dir).expanduser().resolve())
-    
     lineage_cache = {}
 
     with alive_bar(len(unique_truth), title="Caching lineages") as bar:
         for t in unique_truth:
-            lineage_cache[t] = set(get_lineage(ncbi, t)) 
+            lineage_cache[t] = set(get_lineage(db, t, db_type)) 
             bar()
             
     unique_perseus = merged_df["perseus_taxid"].unique()
@@ -174,14 +192,14 @@ def run_filter(args):
 
     with alive_bar(len(unique_perseus), title="Caching ranks") as bar:
         for tx in unique_perseus:
-            rank_cache[tx] = get_rank(ncbi, tx)
+            rank_cache[tx] = get_rank(db, tx, db_type)
             bar()
             
     perseus_lineage_list_cache = {}
 
     with alive_bar(len(unique_perseus), title="Caching Perseus lineages") as bar:
         for tx in unique_perseus:
-            perseus_lineage_list_cache[tx] = get_lineage(ncbi, tx)
+            perseus_lineage_list_cache[tx] = get_lineage(db, tx, db_type)
             bar()
 
     ancestor_at_rank_cache = {}
@@ -189,7 +207,10 @@ def run_filter(args):
     with alive_bar(len(unique_perseus), title="Caching ancestors at ranks") as bar:
         for tx in unique_perseus:
             lineage = perseus_lineage_list_cache[tx]
-            lineage_ranks = ncbi.get_rank(lineage) if lineage else {}
+            if db_type == "gtdb":
+                lineage_ranks = db._get_id2rank(lineage) if lineage else {}
+            else:
+                lineage_ranks = db.get_rank(lineage) if lineage else {}
 
             rank_to_taxid = {}
             for anc in reversed(lineage):   # deepest -> root
@@ -243,11 +264,14 @@ def run_filter(args):
             return None
 
         return ancestor_at_rank_cache.get(base_taxid, {}).get(chosen_rank, base_taxid)
-    
+    import pdb;pdb.set_trace()
     filtered_df["perseus_taxid"] = filtered_df.apply(get_final_taxid_from_cache, axis=1)
     
     final_taxids = pd.Series(filtered_df["perseus_taxid"].dropna().unique()).astype(int).tolist()
-    name_cache = ncbi.get_taxid_translator(final_taxids) if final_taxids else {}
+    if db_type == "gtdb":
+        name_cache = db._get_taxid_translator(final_taxids) if final_taxids else {}
+    else:
+        name_cache = db.get_taxid_translator(final_taxids) if final_taxids else {}
     filtered_df["perseus_taxonomy"] = filtered_df["perseus_taxid"].map(name_cache)
     
     LOG.info("Selected %d final rows", len(filtered_df))
