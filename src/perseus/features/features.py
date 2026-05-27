@@ -52,7 +52,7 @@ def _torch_dtype(name: str) -> torch.dtype:
     return torch.float32
 
 
-def compute_bin_features(kmer_tax_counts, pred_lineage, canonical_ranks):
+def compute_bin_features(kmer_tax_counts, pred_lineage, canonical_ranks, lineage_at_rank=None):
     """
     Compute binned features from kmer taxonomic counts and predicted lineage
 
@@ -60,70 +60,79 @@ def compute_bin_features(kmer_tax_counts, pred_lineage, canonical_ranks):
         kmer_tax_counts (dict): Kmer taxid counts
         pred_lineage (list): Predicted lineage taxids
         canonical_ranks (list): List of canonical ranks
+        lineage_at_rank (dict, optional): Pre-computed {rank: taxid} map for pred_lineage.
+            Pass from process_chunk_iter to avoid a DB call per bin.
 
     Returns:
         list: Feature vector
     """
-    lineage_ranks = globals.NCBI.get_rank(pred_lineage)
-    lineage_at_rank = {r: None for r in canonical_ranks}
-    for t in pred_lineage:
-        raw = lineage_ranks.get(t)
-        can = canonicalize_rank(raw)
-        if can in canonical_ranks and lineage_at_rank[can] is None:
-            lineage_at_rank[can] = t
+    if lineage_at_rank is None:
+        lineage_ranks = globals.NCBI.get_rank(pred_lineage)
+        lineage_at_rank = {r: None for r in canonical_ranks}
+        for t in pred_lineage:
+            raw = lineage_ranks.get(t)
+            can = canonicalize_rank(raw)
+            if can in canonical_ranks and lineage_at_rank[can] is None:
+                lineage_at_rank[can] = t
 
-    in_lineage_counts  = {r: 0 for r in canonical_ranks}
-    desc_counts        = {r: 0 for r in canonical_ranks}
-    out_lineage_counts = {r: 0 for r in canonical_ranks}
-
+    n_ranks = len(canonical_ranks)
     total = int(sum(kmer_tax_counts.values()))
     if total == 0:
-        return [np.float32(0.0)] + [np.float32(0.0) for _ in range(len(canonical_ranks) * 3)]
+        return [np.float32(0.0)] * (1 + n_ranks * 3)
 
-    lineage_map   = globals._shared_lineage_map or {}
     canonical_map = globals._shared_canonical_map or {}
-    descendant_map = globals._shared_descendant_map or {}
 
-    for taxid, count in kmer_tax_counts.items():
-        try:
-            taxid = int(taxid)
-        except Exception:
-            continue
+    # pred_anc per rank as int array; -1 means None
+    pred_anc_arr = np.array(
+        [lineage_at_rank[r] if lineage_at_rank[r] is not None else -1
+         for r in canonical_ranks], dtype=np.int64
+    )  # (n_ranks,)
 
-        kmer_ancestors = canonical_map.get(taxid)
-        if kmer_ancestors is None:
-            kmer_ancestors = get_canonical_taxid_for_rank(taxid, canonical_ranks, globals.NCBI)
+    # rank name → index, for fast kmer_rank comparison
+    rank_index = {r: i for i, r in enumerate(canonical_ranks)}
 
-        kmer_rank_raw = get_taxid_rank_raw(taxid)
-        kmer_rank = canonicalize_rank(kmer_rank_raw)
+    taxids = list(kmer_tax_counts.keys())
+    counts = np.array([kmer_tax_counts[t] for t in taxids], dtype=np.float32)  # (n_taxa,)
+    n_taxa = len(taxids)
 
-        for rank in canonical_ranks:
-            pred_anc = lineage_at_rank[rank]
-            if pred_anc is None:
-                out_lineage_counts[rank] += count
-                continue
+    taxid_int    = np.empty(n_taxa, dtype=np.int64)
+    anc_matrix   = np.full((n_taxa, n_ranks), -1, dtype=np.int64)  # ancestor of taxid i at rank r
+    kmer_rank_idx = np.full(n_taxa, -1, dtype=np.int64)            # own-rank index of taxid i
 
-            anc = kmer_ancestors.get(rank)
+    for i, taxid in enumerate(taxids):
+        tid = int(taxid)
+        taxid_int[i] = tid
+        ancs = canonical_map.get(tid)
+        if ancs is None:
+            ancs = get_canonical_taxid_for_rank(tid, canonical_ranks, globals.NCBI)
+        for ri, rank in enumerate(canonical_ranks):
+            a = ancs.get(rank)
+            if a is not None:
+                anc_matrix[i, ri] = int(a)
+        kr = canonicalize_rank(get_taxid_rank_raw(tid))
+        if kr in rank_index:
+            kmer_rank_idx[i] = rank_index[kr]
 
-            if anc == pred_anc:
-                # If the k-mer sits exactly at this node -> in_lineage, else descendant
-                if (taxid == pred_anc) or (kmer_rank == rank):
-                    in_lineage_counts[rank] += count
-                else:
-                    desc_counts[rank] += count
-                continue
+    # --- vectorized classification (n_taxa × n_ranks) ---
+    pred_present = pred_anc_arr != -1                                                     # (n_ranks,)
+    anc_match    = anc_matrix == pred_anc_arr[np.newaxis, :]                              # (n_taxa, n_ranks)
+    at_node      = taxid_int[:, np.newaxis] == pred_anc_arr[np.newaxis, :]               # (n_taxa, n_ranks)
+    at_rank      = kmer_rank_idx[:, np.newaxis] == np.arange(n_ranks)[np.newaxis, :]     # (n_taxa, n_ranks)
 
-            pred_desc = descendant_map.get(int(pred_anc))
-            if anc is None and pred_desc is not None and taxid in pred_desc:
-                desc_counts[rank] += count
-            else:
-                out_lineage_counts[rank] += count
+    in_mask   = pred_present & anc_match & (at_node | at_rank)   # (n_taxa, n_ranks)
+    desc_mask = pred_present & anc_match & ~(at_node | at_rank)  # (n_taxa, n_ranks)
+    out_mask  = ~in_mask & ~desc_mask                             # (n_taxa, n_ranks)
+
+    # dot product: counts (n_taxa,) · masks (n_taxa, n_ranks) → (n_ranks,)
+    in_lin = counts @ in_mask.astype(np.float32)
+    out    = counts @ out_mask.astype(np.float32)
+    desc   = counts @ desc_mask.astype(np.float32)
 
     denom = float(total)
-    vec = [kmer_tax_counts[pred_lineage[-1]] / denom if pred_lineage and pred_lineage[-1] in kmer_tax_counts else np.float32(0.0)]
-    for r in canonical_ranks:
-        fi = in_lineage_counts[r]  / denom
-        fo = out_lineage_counts[r] / denom
-        fd = desc_counts[r]        / denom
-        vec.extend([np.float32(fi), np.float32(fo), np.float32(fd)])
+    leaf  = pred_lineage[-1] if pred_lineage else None
+    vec   = [np.float32(kmer_tax_counts.get(leaf, 0) / denom)]
+    for ri in range(n_ranks):
+        vec += [np.float32(in_lin[ri] / denom),
+                np.float32(out[ri]    / denom),
+                np.float32(desc[ri]   / denom)]
     return vec

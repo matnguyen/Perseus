@@ -21,7 +21,8 @@ from perseus.utils.io_utils import (
 from perseus.utils.tax_utils import (
     normalize_taxid,
     get_lineage_path,
-    lineage_to_rank_map
+    lineage_to_rank_map,
+    canonicalize_rank
 )
 from perseus.utils.targets import (
     compute_cutoff_and_exclusion,
@@ -374,6 +375,15 @@ def process_chunk_iter(
 
             pred_at_rank = lineage_to_rank_map(pred_lineage, CANONICAL_RANKS)
 
+            # Compute once per candidate taxon, passed into every bin call below
+            lineage_ranks = globals.NCBI.get_rank(pred_lineage)
+            lineage_at_rank = {r: None for r in CANONICAL_RANKS}
+            for t in pred_lineage:
+                raw = lineage_ranks.get(t)
+                can = canonicalize_rank(raw)
+                if can in CANONICAL_RANKS and lineage_at_rank[can] is None:
+                    lineage_at_rank[can] = t
+
             labels_per_rank = []
             for r in CANONICAL_RANKS:
                 tr = true_at_rank[r]
@@ -383,7 +393,8 @@ def process_chunk_iter(
             bins_vecs = []
             for b in bin_indices:
                 kmer_tax_counts = bin_counts_by_bin[b]
-                vec28 = compute_bin_features(kmer_tax_counts, pred_lineage, CANONICAL_RANKS)
+                vec28 = compute_bin_features(kmer_tax_counts, pred_lineage, CANONICAL_RANKS,
+                                             lineage_at_rank=lineage_at_rank)
                 bins_vecs.append(vec28)
 
             yield {
