@@ -299,7 +299,7 @@ def test_process_chunk_iter_basic_regular_mode(monkeypatch):
     monkeypatch.setattr(
         m,
         "compute_bin_features",
-        lambda counts, lineage, ranks: [len(counts)] * 28,
+        lambda counts, lineage, ranks, lineage_at_rank=None: [len(counts)] * 28,
     )
 
     globals_mod._shared_lineage_map = {
@@ -368,8 +368,7 @@ def test_process_chunk_iter_max_bins_per_seq(monkeypatch):
     monkeypatch.setattr(
         m,
         "compute_bin_features",
-        lambda counts, lineage, ranks: [sum(counts.values())] * 28,
-    )
+        lambda counts, lineage, ranks, lineage_at_rank=None: [sum(counts.values())] * 28,    )
 
     globals_mod._shared_lineage_map = {60: [1, 60]}
 
@@ -409,7 +408,7 @@ def test_process_chunk_iter_training_topk_and_keep_taxonomy(monkeypatch):
     monkeypatch.setattr(
         m,
         "compute_bin_features",
-        lambda counts, lineage, ranks: [1] * 28,
+        lambda counts, lineage, ranks, lineage_at_rank=None: [1] * 28,
     )
 
     globals_mod._shared_lineage_map = {
