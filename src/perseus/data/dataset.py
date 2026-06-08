@@ -15,7 +15,9 @@ from perseus.data.collate import PadMaskCollateCF
 from perseus.data.sampler import ShardBatchSampler
 from perseus.utils.constants import (
     CANONICAL_RANKS,
-    CROP_MAX_T
+    CROP_MAX_T,
+    CHANNEL_ORDERS,
+    DEFAULT_CHANNEL_ORDER
 )
 from perseus.trainer.utils import (
     normalize_y_per_rank_to7,
@@ -24,6 +26,14 @@ from perseus.trainer.utils import (
 )
 
 logger = logging.getLogger(__name__)
+
+def build_channel_permutation(order=(0, 1, 2)):
+    """Index array to reorder (fi, fo, fd) triplets per rank. raw_total (index 0) is always first."""
+    idx = [0]
+    for rank_i in range(len(CANONICAL_RANKS)):
+        base = 1 + 3 * rank_i
+        idx.extend([base + o for o in order])
+    return idx
 
 class ShardedCFTorchDataset(Dataset):
     """
@@ -50,7 +60,8 @@ class ShardedCFTorchDataset(Dataset):
         downcast_cache_dtype (str or None, optional): Downcast cache dtype ("float16" or None)
     """
     def __init__(self, manifest_or_dir, split_dir=None, split="train",
-                 cache_shards=1, to_float32=False, downcast_cache_dtype="float16"):
+                 cache_shards=1, to_float32=False, downcast_cache_dtype="float16",
+                 channel_order=(0, 1, 2)):
         p = Path(manifest_or_dir).resolve()
         
         self.split_dir = Path(split_dir).resolve() if split_dir else None
@@ -107,6 +118,7 @@ class ShardedCFTorchDataset(Dataset):
         # cache allowed local idx per shard (small)
         self._allowed = {}
 
+        self.perm_idx = build_channel_permutation(channel_order)  
         logger.info("Dataset: %d shards, %d samples (split=%s)",
                     len(self.paths), self.total, self.split)
         
@@ -198,6 +210,7 @@ class ShardedCFTorchDataset(Dataset):
         x = (m["x"][j] if "x" in m else m["x_list"][j])
         if self.to_float32 and x.dtype != torch.float32:
             x = x.float()
+        x = x[self.perm_idx] 
 
         # y_any = m.get("y_any", m.get("y"))[j].float()
 
@@ -271,7 +284,7 @@ def make_loader(args, ds, batch_size, train=True, val=False, num_workers=2, shuf
     )
 
 
-def build_loader(args, input_path, batch_size, train_flag, val_flag, rank_filter=None):
+def build_loader(args, input_path, batch_size, train_flag, val_flag, rank_filter=None, channel_order=(0, 1, 2)):
     """
     Build a ShardedCFTorchDataset and DataLoader, optionally filtering by rank
 
@@ -295,7 +308,8 @@ def build_loader(args, input_path, batch_size, train_flag, val_flag, rank_filter
             split="train" if train_flag else "val",
             cache_shards=args.cache_shards,
             to_float32=args.cpu_float32,
-            downcast_cache_dtype=downcast
+            downcast_cache_dtype=downcast,
+            channel_order=channel_order,
         )
     else:
         idx, _stats = build_rank_filtered_index(input_path, rank_filter, cache_file=args.rank_cache)
@@ -307,7 +321,8 @@ def build_loader(args, input_path, batch_size, train_flag, val_flag, rank_filter
             split="train" if train_flag else "val",
             cache_shards=args.cache_shards,
             to_float32=args.cpu_float32,
-            downcast_cache_dtype=downcast
+            downcast_cache_dtype=downcast,
+            channel_order=channel_order,
         )
 
     # IMPORTANT: keep crop_max fixed for BOTH train and val for deterministic shapes

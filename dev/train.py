@@ -19,7 +19,9 @@ from perseus.utils.constants import (
     CANONICAL_RANKS,
     RANK_INDEX,
     N_CHANNELS,
-    CROP_MAX_T
+    CROP_MAX_T,
+    CHANNEL_ORDERS,
+    DEFAULT_CHANNEL_ORDER,
 )
 
 # -------------------------
@@ -97,6 +99,12 @@ if __name__ == "__main__":
     ap.add_argument("--val-samples-per-shard", type=int, default=None,
                         help="(Val only) Number of samples to draw per shard per epoch (for epoch-wise resampling)")
     ap.add_argument("--seed", type=int, default=667, help="Random seed for reproducibility")
+    ap.add_argument(
+        "--channel-order",
+        choices=list(CHANNEL_ORDERS.keys()),
+        default=DEFAULT_CHANNEL_ORDER,
+        help="Order of (fi, fo, fd) per rank for ablation study"
+    )
 
     args = ap.parse_args()
     setup_logging(args.log_level)
@@ -121,8 +129,8 @@ if __name__ == "__main__":
     if args.ranks:
         for rk in CANONICAL_RANKS:
             LOG.info("=== Predicted Rank: %s ===", rk)
-            _, train_loader = build_loader(args, train_input, args.batch, True,  False, rank_filter=rk)
-            _, val_loader   = build_loader(args, val_input,   args.batch, False, True, rank_filter=rk)
+            _, train_loader = build_loader(args, train_input, args.batch, True,  False, rank_filter=rk, channel_order=CHANNEL_ORDERS[args.channel_order])
+            _, val_loader   = build_loader(args, val_input,   args.batch, False, True, rank_filter=rk, channel_order=CHANNEL_ORDERS[args.channel_order])
             model = make_model(args, out_dim, device)
             save_path = f"{Path(args.save).with_suffix('')}_{args.target}_{rk}.pt"
             rank_idx_gate = RANK_INDEX[rk] if args.target == "rank" else None
@@ -134,8 +142,8 @@ if __name__ == "__main__":
     if args.rank:
         rk = args.rank
         LOG.info("Training single model for predicted rank='%s'", rk)
-        _, train_loader = build_loader(args, train_input, args.batch, True,  rank_filter=rk)
-        _, val_loader   = build_loader(args, val_input,   args.batch, False, rank_filter=rk)
+        _, train_loader = build_loader(args, train_input, args.batch, True,  rank_filter=rk, channel_order=CHANNEL_ORDERS[args.channel_order])
+        _, val_loader   = build_loader(args, val_input,   args.batch, False, rank_filter=rk, channel_order=CHANNEL_ORDERS[args.channel_order])
         model = make_model(args, out_dim, device)
         save_path = f"{Path(args.save).with_suffix('')}_{args.target}_{rk}.pt"
         rank_idx_gate = RANK_INDEX[rk] if args.target == "rank" else None
@@ -144,8 +152,8 @@ if __name__ == "__main__":
               epochs=args.epochs, lr=args.lr, save_path=save_path)
 
     LOG.info("Training on ALL samples (no rank filter). target=%s", args.target)
-    _, train_loader = build_loader(args, train_input, args.batch, True,  False, rank_filter=None)
-    _, val_loader   = build_loader(args, val_input,   args.batch, False, True, rank_filter=None)
+    _, train_loader = build_loader(args, train_input, args.batch, True,  False, rank_filter=None, channel_order=CHANNEL_ORDERS[args.channel_order])
+    _, val_loader   = build_loader(args, val_input,   args.batch, False, True, rank_filter=None, channel_order=CHANNEL_ORDERS[args.channel_order])
     model = make_model(args, out_dim, device)
     save_path = f"{Path(args.save).with_suffix('')}_{args.target}.pt"
     train(model, train_loader, val_loader, device,

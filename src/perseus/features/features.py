@@ -52,7 +52,7 @@ def _torch_dtype(name: str) -> torch.dtype:
     return torch.float32
 
 
-def compute_bin_features(kmer_tax_counts, pred_lineage, canonical_ranks, lineage_at_rank=None):
+def compute_bin_features(kmer_tax_counts, pred_lineage, canonical_ranks, lineage_at_rank=None, channel_order=(0,1,2)):
     """
     Compute binned features from kmer taxonomic counts and predicted lineage
 
@@ -62,6 +62,7 @@ def compute_bin_features(kmer_tax_counts, pred_lineage, canonical_ranks, lineage
         canonical_ranks (list): List of canonical ranks
         lineage_at_rank (dict, optional): Pre-computed {rank: taxid} map for pred_lineage.
             Pass from process_chunk_iter to avoid a DB call per bin.
+        channel_order (tuple): Permutation of (0,1,2) → order of (fi, fo, fd) per rank.
 
     Returns:
         list: Feature vector
@@ -132,7 +133,8 @@ def compute_bin_features(kmer_tax_counts, pred_lineage, canonical_ranks, lineage
     leaf  = pred_lineage[-1] if pred_lineage else None
     vec   = [np.float32(kmer_tax_counts.get(leaf, 0) / denom)]
     for ri in range(n_ranks):
-        vec += [np.float32(in_lin[ri] / denom),
-                np.float32(out[ri]    / denom),
-                np.float32(desc[ri]   / denom)]
+        triplet = [np.float32(in_lin[ri] / denom),
+                   np.float32(out[ri]    / denom),
+                   np.float32(desc[ri]   / denom)]
+        vec += [triplet[i] for i in channel_order]
     return vec
