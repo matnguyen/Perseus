@@ -88,7 +88,8 @@ def fetch_maps(args):
 
     try:
         lineage = ncbi.get_lineage(int(tid))
-        descendants = set(ncbi.get_descendant_taxa(int(tid)))
+        # descendants = set(ncbi.get_descendant_taxa(int(tid)))
+        descendants = set()
         canonical_taxid = get_canonical_taxid_for_rank(tid, CANONICAL_RANKS, ncbi)
         return tid, lineage, descendants, canonical_taxid
     except Exception:

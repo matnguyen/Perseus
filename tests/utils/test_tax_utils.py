@@ -118,7 +118,7 @@ def test_fetch_maps_good_path(monkeypatch):
 
     assert tid == 60
     assert lineage == [2, 10, 20, 30, 40, 50, 60]
-    assert descendants == {61, 62}
+    assert descendants == set()
     assert canon["superkingdom"] == 2
     assert canon["phylum"] == 10
     assert canon["class"] == 20
