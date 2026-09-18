@@ -200,7 +200,7 @@ def read_kraken_file(
         )
 
         iterator = map(
-            _fetch_feature_maps,
+            fetch_feature_maps,
             all_taxids,
         )
 
