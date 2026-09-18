@@ -4,30 +4,39 @@ import numpy as np
 import logging
 import random
 import multiprocessing as mp
+
+from functools import lru_cache
 from alive_progress import alive_bar
 from collections import defaultdict
 
 import perseus.utils.globals as globals
-from perseus.features.features import compute_bin_features, compute_sequence_bin_features, build_taxonomy_lookup
-from perseus.utils.constants import CANONICAL_RANKS
-from perseus.utils.tax_utils import get_ncbi
-from perseus.features.init import (
-    _init_ncbi_private_db,
-    effective_nprocs
+
+from perseus.features.features import (
+    compute_bin_features,
+    compute_sequence_bin_features,
+    encode_sequence_bins,
+    get_worker_taxonomy_lookup,
 )
-from perseus.utils.io_utils import (
-    _write_rows_streaming_shards,
-    prefetch
+
+from perseus.utils.constants import (
+    CANONICAL_RANKS,
 )
+
 from perseus.utils.tax_utils import (
+    get_ncbi,
     normalize_taxid,
     get_lineage_path,
     lineage_to_rank_map,
-    canonicalize_rank
 )
-from perseus.utils.targets import (
-    compute_cutoff_and_exclusion,
-    build_targets_from_cutoff
+
+from perseus.features.init import (
+    _init_ncbi_private_db,
+    effective_nprocs,
+)
+
+from perseus.utils.io_utils import (
+    _write_rows_streaming_shards,
+    prefetch,
 )
 
 logger = logging.getLogger(__name__)
@@ -216,6 +225,169 @@ def build_tax_context(file_path, db_path, rows_per_chunk=1000, prefetch_buf=64, 
 
     return tax_context
 
+@lru_cache(maxsize=8)
+def _load_mess_taxid_map(
+    mess_true_file,
+    mess_input_file,
+):
+    """
+    Read MESS mappings once per worker process.
+
+    Returns:
+        dict[str, taxid]
+    """
+
+    if not mess_true_file:
+        return {}
+
+    if (
+        mess_input_file
+        and
+        mess_true_file == mess_input_file
+    ):
+
+        mess_map = pd.read_csv(
+            mess_true_file,
+            sep="\t",
+            header=None,
+            names=[
+                "seq_id",
+                "ref",
+            ],
+        )
+
+        mess_map["tax_id"] = (
+            mess_map["ref"]
+            .str.split("|")
+            .str[1]
+        )
+
+    elif mess_input_file:
+
+        mess_df = pd.read_csv(
+            mess_true_file,
+            sep="\t",
+            header=None,
+            names=[
+                "seq_id",
+                "name",
+            ],
+        )
+
+        mess_df["name"] = (
+            mess_df["name"]
+            .str.split("/")
+            .str[0]
+            .str[:-1]
+        )
+
+        mess_df["name"] = (
+            mess_df["name"]
+            .str.replace(
+                r"\.(\d)\d*(?:_.*)?",
+                r".\1",
+                regex=True,
+            )
+        )
+
+        mess_input_df = pd.read_csv(
+            mess_input_file,
+            sep="\t",
+            header=0,
+        )
+
+        if (
+            mess_input_df["tax_id"] == 0
+        ).all():
+
+            mess_input_df["tax_id"] = (
+                mess_input_df["fasta"]
+                .str.split("__")
+                .str[2]
+            )
+
+        mess_input_df["fasta"] = (
+            mess_input_df["fasta"]
+            .str.split("__")
+            .str[-1]
+        )
+
+        mess_map = (
+            mess_df
+            .set_index("name")
+            .join(
+                mess_input_df
+                .set_index("fasta")[
+                    ["tax_id"]
+                ],
+                how="left",
+            )
+            .reset_index()
+        )
+
+    else:
+        # Generic two-column true mapping fallback.
+        mess_map = pd.read_csv(
+            mess_true_file,
+            sep="\t",
+            header=None,
+        )
+
+        if mess_map.shape[1] < 2:
+            return {}
+
+        mess_map = mess_map.iloc[:, :2]
+        mess_map.columns = [
+            "seq_id",
+            "tax_id",
+        ]
+
+    if "seq_id" not in mess_map:
+        return {}
+
+    return {
+        str(seq_id): taxid
+        for seq_id, taxid in zip(
+            mess_map["seq_id"],
+            mess_map["tax_id"],
+        )
+    }
+
+
+@lru_cache(maxsize=200_000)
+def _cached_true_rank_tuple(
+    true_tax: int,
+):
+    """
+    Cache true lineage/rank mapping because many simulated
+    sequences typically share the same true taxon.
+    """
+
+    lineage = (
+        globals._shared_lineage_map.get(
+            int(true_tax),
+            (),
+        )
+    )
+
+    if not lineage:
+        lineage = get_lineage_path(
+            int(true_tax)
+        )
+
+    if not lineage:
+        return None
+
+    rank_map = lineage_to_rank_map(
+        lineage,
+        CANONICAL_RANKS,
+    )
+
+    return tuple(
+        rank_map.get(rank)
+        for rank in CANONICAL_RANKS
+    )
+
 
 def process_chunk_iter(
     chunk,
@@ -225,183 +397,342 @@ def process_chunk_iter(
     max_bins_per_seq=None,
     mess_true_file=None,
     mess_input_file=None,
-    neg_extra=4,              # sample extra tail taxa beyond topk
-    keep_taxonomy=True,       # always include row.Taxonomy (kraken reported)
+    neg_extra=4,
+    keep_taxonomy=True,
     seed=0,
-    is_training=False
+    is_training=False,
 ):
+
     if chunk.empty:
         return
-    view = chunk.loc[chunk['Classified'] == 'C', ['ID', 'Length', 'Kmers', 'Taxonomy']]
+
+    view = chunk.loc[
+        chunk["Classified"] == "C",
+        [
+            "ID",
+            "Length",
+            "Kmers",
+            "Taxonomy",
+        ],
+    ]
+
     if view.empty:
-        logger.debug("No classified sequences in chunk, skipping.")
         return
 
-    if mess_true_file and mess_input_file:
-        if mess_true_file == mess_input_file:
-            mess_map = pd.read_csv(mess_true_file, sep='\t', header=None, index_col=None, names=['seq_id', 'ref'])
-            mess_map['tax_id'] = mess_map['ref'].str.split('|').str[1]
-        else:
-            try:
-                logger.info(f"Processing MESS files: {mess_true_file}, {mess_input_file}")
-                mess_df = pd.read_csv(mess_true_file, sep="\t", header=None, names=['seq_id', 'name'])
-                mess_df['name'] = mess_df['name'].str.split('/').str[0].str[:-1]       
-                mess_df["name"] = mess_df["name"].str.replace(
-                    r'\.(\d)\d*(?:_.*)?',  # regex pattern
-                    r'.\1',                # replacement
-                    regex=True
-                )     
-                mess_input_df = pd.read_csv(mess_input_file, sep="\t", header=0)
-                if (mess_input_df['tax_id'] == 0).all():
-                    mess_input_df['tax_id'] = mess_input_df['fasta'].str.split('__').str[2]
-                mess_input_df['fasta'] = mess_input_df['fasta'].str.split('__').str[-1]    
-                mess_map = (mess_df.set_index('name')
-                                .join(mess_input_df.set_index('fasta')[['tax_id']], how='left')
-                                .reset_index()
-                                .rename(columns={'index': 'name'}))        
-            except:
-                logger.warning(f"Error processing MESS files: {mess_true_file}, {mess_input_file}")
-                
     rng = random.Random(seed)
 
-    for row in view.itertuples(index=False):
-        seq_id, kmers_str = row.ID, row.Kmers
-        if not isinstance(kmers_str, str) or not kmers_str:
-            logger.debug(f"No k-mers for sequence {seq_id}, skipping.")
-            continue
-        
-        if mess_true_file:
-            try:
-                true_tax_raw = mess_map.loc[mess_map['seq_id'] == seq_id, 'tax_id']
-            except:
-                logger.warning(f"Error retrieving true taxid for sequence {seq_id} from MESS map.")
-                try:
-                    true_tax_raw = row.ID.split('|')[1]
-                except:
-                    true_tax_raw = row.Taxonomy
-            try:
-                true_tax = normalize_taxid(int(true_tax_raw.iloc[0])) if not true_tax_raw.empty else normalize_taxid(row.Taxonomy)
-            except:
-                true_tax = normalize_taxid(int(true_tax_raw)) if true_tax_raw is not None else normalize_taxid(row.Taxonomy)
-        else:
-            try:
-                true_tax_raw = row.ID.split('|')[1]
-            except:
-                true_tax_raw = row.Taxonomy
-            true_tax = normalize_taxid(true_tax_raw)
+    # Built only once on the first chunk handled
+    # by this worker.
+    taxonomy_lookup = (
+        get_worker_taxonomy_lookup(
+            CANONICAL_RANKS
+        )
+    )
 
-        # True lineage + rank map (for Option B per-rank comparison)
-        true_lineage = get_lineage_path(true_tax)
-        if not true_lineage:
+    if mess_true_file:
+        try:
+            mess_taxid_map = (
+                _load_mess_taxid_map(
+                    mess_true_file,
+                    mess_input_file,
+                )
+            )
+        except Exception:
+            logger.exception(
+                "Could not load MESS mapping"
+            )
+            mess_taxid_map = {}
+    else:
+        mess_taxid_map = {}
+
+    shared_canonical = (
+        globals._shared_canonical_map
+        or {}
+    )
+
+    for row in view.itertuples(
+        index=False
+    ):
+
+        seq_id = row.ID
+        kmers_str = row.Kmers
+
+        if (
+            not isinstance(
+                kmers_str,
+                str,
+            )
+            or
+            not kmers_str
+        ):
             continue
-        true_at_rank = lineage_to_rank_map(true_lineage, CANONICAL_RANKS)
-        
-        # Accumulate per-bin counts
+
+        # ====================================================
+        # True taxon
+        # ====================================================
+
+        if mess_true_file:
+
+            true_tax_raw = (
+                mess_taxid_map.get(
+                    str(seq_id)
+                )
+            )
+
+            if true_tax_raw is None:
+
+                try:
+                    true_tax_raw = (
+                        row.ID.split("|")[1]
+                    )
+                except Exception:
+                    true_tax_raw = (
+                        row.Taxonomy
+                    )
+
+        else:
+
+            try:
+                true_tax_raw = (
+                    row.ID.split("|")[1]
+                )
+            except Exception:
+                true_tax_raw = (
+                    row.Taxonomy
+                )
+
+        try:
+            true_tax = normalize_taxid(
+                true_tax_raw
+            )
+        except Exception:
+            continue
+
+        if true_tax is None:
+            continue
+
+        true_tax = int(
+            true_tax
+        )
+
+        true_rank_tuple = (
+            _cached_true_rank_tuple(
+                true_tax
+            )
+        )
+
+        if true_rank_tuple is None:
+            continue
+
+        # ====================================================
+        # Parse Kraken k-mer evidence once
+        # ====================================================
+
         bin_counts_by_bin = {}
-        tax_totals = defaultdict(int)
+
+        tax_totals = defaultdict(
+            int
+        )
+
         cur_pos = 0
-        for taxid, count in iter_kmer_tokens(kmers_str):
+
+        for taxid, count in iter_kmer_tokens(
+            kmers_str
+        ):
+
             tax_totals[taxid] += count
-            cur_pos = add_to_bins(bin_counts_by_bin, bin_size, taxid, count, cur_pos)
+
+            cur_pos = add_to_bins(
+                bin_counts_by_bin,
+                bin_size,
+                taxid,
+                count,
+                cur_pos,
+            )
 
         if not bin_counts_by_bin:
             continue
 
-        # ----------------------------
-        # Candidate predicted taxa (filter by evidence)
-        # ----------------------------
-        candidates = [t for t, c in tax_totals.items() if c >= min_tax_kmers]
+        # ====================================================
+        # Candidate taxa
+        # ====================================================
+
+        candidates = [
+            t
+            for t, c
+            in tax_totals.items()
+            if c >= min_tax_kmers
+        ]
+
         if not candidates:
             continue
 
-        # Optional: always include Kraken-reported taxon
+        candidates.sort(
+            key=tax_totals.get,
+            reverse=True,
+        )
+
         keep_set = set()
+
         if keep_taxonomy:
+
             try:
-                keep_set.add(int(normalize_taxid(row.Taxonomy)))
+                keep = normalize_taxid(
+                    row.Taxonomy
+                )
+
+                if keep is not None:
+                    keep_set.add(
+                        int(keep)
+                    )
+
             except Exception:
                 pass
-                
-        # Sort candidates by support (descending)
-        candidates.sort(key=lambda t: tax_totals[t], reverse=True)
 
         if is_training:
-            # Top-K selection
-            if topk_taxa is not None and topk_taxa > 0 and len(candidates) > topk_taxa:
-                top = candidates[:topk_taxa]
-                tail = candidates[topk_taxa:]
+
+            if (
+                topk_taxa is not None
+                and
+                topk_taxa > 0
+                and
+                len(candidates)
+                > topk_taxa
+            ):
+
+                top = candidates[
+                    :topk_taxa
+                ]
+
+                tail = candidates[
+                    topk_taxa:
+                ]
+
             else:
+
                 top = candidates
                 tail = []
 
-            # Extra tail sampling (helps calibration / coverage)
             if neg_extra and tail:
-                m = min(int(neg_extra), len(tail))
-                extra = rng.sample(tail, m)
+
+                m = min(
+                    int(neg_extra),
+                    len(tail),
+                )
+
+                extra = rng.sample(
+                    tail,
+                    m,
+                )
+
             else:
+
                 extra = []
 
-            # Final candidate list (dedup, preserve order-ish)
-            # Ensure keep_set taxa are included even if not selected
-            selected = []
+            selected_candidates = []
             seen = set()
-            for t in top + extra:
+
+            for t in (
+                top + extra
+            ):
+
                 if t not in seen:
-                    selected.append(t)
                     seen.add(t)
+
+                    selected_candidates.append(
+                        t
+                    )
 
             for t in keep_set:
-                if t not in seen and t in tax_totals:   # only if it had evidence in this seq
-                    selected.append(t)
+
+                if (
+                    t not in seen
+                    and
+                    t in tax_totals
+                ):
+
                     seen.add(t)
 
-            candidates = selected
+                    selected_candidates.append(
+                        t
+                    )
 
-        bin_indices = sorted(bin_counts_by_bin.keys())
-        if max_bins_per_seq and len(bin_indices) > max_bins_per_seq:
-            # Downsample bins to max_bins_per_seq by uniform subsampling
-            step = len(bin_indices) / max_bins_per_seq
-            selected = [bin_indices[int(i * step)] for i in range(max_bins_per_seq)]
-            new_bins = {b: bin_counts_by_bin[b] for b in selected}
-            bin_counts_by_bin = new_bins
-            bin_indices = sorted(bin_counts_by_bin.keys())
+            candidates = (
+                selected_candidates
+            )
 
-        # Build examples for each predicted taxon
-        # ------------------------------------------------------------
-        # Prepare sequence-level feature information ONCE
-        # ------------------------------------------------------------
+        # ====================================================
+        # Bin downsampling
+        # ====================================================
 
-        # Keep bins in their genomic order.
+        bin_indices = sorted(
+            bin_counts_by_bin
+        )
+
+        if (
+            max_bins_per_seq
+            and
+            len(bin_indices)
+            >
+            max_bins_per_seq
+        ):
+
+            step = (
+                len(bin_indices)
+                /
+                max_bins_per_seq
+            )
+
+            bin_indices = [
+                bin_indices[
+                    int(i * step)
+                ]
+                for i
+                in range(
+                    max_bins_per_seq
+                )
+            ]
+
         bins_for_sequence = [
             bin_counts_by_bin[b]
             for b in bin_indices
         ]
 
-        # tax_totals already contains every taxid observed in this
-        # sequence, so do not rediscover them for every candidate.
+        # ====================================================
+        # Encode bins exactly ONCE for this sequence
+        # ====================================================
+
+        sequence_taxid_set = set()
+
+        for bin_counts in (
+            bins_for_sequence
+        ):
+            sequence_taxid_set.update(
+                bin_counts.keys()
+            )
+
         sequence_taxids = np.fromiter(
-            tax_totals.keys(),
+            sequence_taxid_set,
             dtype=np.int64,
-            count=len(tax_totals),
+            count=len(
+                sequence_taxid_set
+            ),
         )
 
-        # Build numerical taxonomy rows ONCE PER SEQUENCE.
-        #
-        # This converts:
-        #
-        #     taxid -> ancestor-at-rank
-        #     taxid -> own canonical rank
-        #
-        # into compact arrays that can be reused for every candidate.
-        taxonomy_lookup = build_taxonomy_lookup(
-            sequence_taxids,
-            CANONICAL_RANKS,
+        sequence_taxids.sort()
+
+        encoded_bins = (
+            encode_sequence_bins(
+                bins_for_sequence,
+                sequence_taxids=(
+                    sequence_taxids
+                ),
+            )
         )
 
-
-        # ------------------------------------------------------------
-        # Build one example for each candidate predicted taxon
-        # ------------------------------------------------------------
+        # ====================================================
+        # Candidate-specific calculations
+        # ====================================================
 
         for pred_tax in candidates:
 
@@ -416,7 +747,6 @@ def process_chunk_iter(
                 pred_tax
             )
 
-            # Already precomputed globally.
             pred_lineage = (
                 globals
                 ._shared_lineage_map
@@ -429,69 +759,82 @@ def process_chunk_iter(
             if not pred_lineage:
                 continue
 
-            # This already gives:
-            #
-            # {
-            #     "superkingdom": taxid,
-            #     "phylum": taxid,
-            #     ...
-            # }
-            #
-            # so there is no need to call NCBI.get_rank(pred_lineage)
-            # and reconstruct lineage_at_rank separately.
-            pred_at_rank = lineage_to_rank_map(
-                pred_lineage,
-                CANONICAL_RANKS,
+            # Prefer already-precomputed canonical map.
+            pred_at_rank = (
+                shared_canonical.get(
+                    pred_tax
+                )
             )
 
-            # --------------------------------------------------------
-            # Per-rank labels
-            # --------------------------------------------------------
+            if pred_at_rank is None:
 
-            labels_per_rank = [
-                1
-                if (
-                    true_at_rank[r] is not None
-                    and
-                    pred_at_rank[r] is not None
-                    and
-                    true_at_rank[r] == pred_at_rank[r]
+                pred_at_rank = (
+                    lineage_to_rank_map(
+                        pred_lineage,
+                        CANONICAL_RANKS,
+                    )
                 )
-                else 0
-                for r in CANONICAL_RANKS
-            ]
 
-            # --------------------------------------------------------
-            # Compute ALL bins for this candidate at once.
-            #
-            # Candidate ↔ taxid lineage relationships are calculated
-            # only once, then reused across all bins.
-            # --------------------------------------------------------
+            labels_per_rank = []
 
-            bins_vecs = compute_sequence_bin_features(
-                bins=bins_for_sequence,
-                pred_lineage=pred_lineage,
-                canonical_ranks=CANONICAL_RANKS,
+            for ri, rank in enumerate(
+                CANONICAL_RANKS
+            ):
 
-                # pred_at_rank is already exactly the mapping needed.
-                lineage_at_rank=pred_at_rank,
+                tr = (
+                    true_rank_tuple[ri]
+                )
 
-                # Reuse taxonomy metadata across candidate taxa.
-                taxonomy_lookup=taxonomy_lookup,
+                pr = (
+                    pred_at_rank.get(
+                        rank
+                    )
+                )
 
-                # Avoid rediscovering the same taxids for every candidate.
-                sequence_taxids=sequence_taxids,
+                labels_per_rank.append(
+                    int(
+                        tr is not None
+                        and
+                        pr is not None
+                        and
+                        tr == pr
+                    )
+                )
 
-                # Existing writer expects nested Python lists.
-                return_numpy=False,
+            # No bin dictionary parsing here.
+            # No per-bin searchsorted here.
+            # Two matrix multiplies handle all bins.
+            bins_vecs = (
+                compute_sequence_bin_features(
+                    bins=bins_for_sequence,
+                    pred_lineage=pred_lineage,
+                    canonical_ranks=(
+                        CANONICAL_RANKS
+                    ),
+                    lineage_at_rank=(
+                        pred_at_rank
+                    ),
+                    taxonomy_lookup=(
+                        taxonomy_lookup
+                    ),
+                    sequence_taxids=(
+                        sequence_taxids
+                    ),
+                    encoded_bins=(
+                        encoded_bins
+                    ),
+                    return_numpy=False,
+                )
             )
 
             yield {
                 "seq_id": seq_id,
                 "taxon": pred_tax,
-                "true_taxon": int(true_tax),
+                "true_taxon": true_tax,
                 "bins": bins_vecs,
-                "labels_per_rank": labels_per_rank,
+                "labels_per_rank": (
+                    labels_per_rank
+                ),
             }
 
 

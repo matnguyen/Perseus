@@ -51,6 +51,41 @@ def _init_ncbi_private_db(db_path: str):
     globals_mod._ete3_tmpdir = tmpdir
     globals_mod.NCBI = get_ncbi(db_path)
 
+def init_feature_worker(
+    tax_context,
+    lineage_map,
+    descendant_map,
+    canonical_map,
+    rank_idx_map,
+    out_dir,
+    db_path,
+    shard_size,
+    target_length,
+    to_dtype,
+    manifest_paths,
+):
+    """
+    Initialize a feature extraction worker.
+    """
+
+    init_worker(
+        tax_context,
+        lineage_map,
+        descendant_map,
+        canonical_map,
+        out_dir,
+        db_path,
+        shard_size,
+        target_length,
+        to_dtype,
+        manifest_paths,
+    )
+
+    import perseus.utils.globals as globals
+
+    globals._shared_rank_idx_map = (
+        rank_idx_map
+    )
 
 def init_worker(
     tc, 

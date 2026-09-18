@@ -121,16 +121,30 @@ def run_filter(args):
     LOG.info("Collected scores for %d sequences", len(rows))
                 
     # Load Kraken output
-    kraken_df = pd.read_csv(args.input_kraken, sep="\t", header=None, 
-                            names=["classified", "sequence_id", "kraken_taxonomy", "length", "kmers"])
+    kraken_df = pd.read_csv(
+        args.input_kraken,
+        sep="\t",
+        header=None,
+        usecols=[0, 1, 2, 3],
+        names=[
+            "classified",
+            "sequence_id",
+            "kraken_taxonomy",
+            "length",
+        ],
+        dtype={
+            "classified": "category",
+            "sequence_id": "string",
+            "length": "int64",
+        },
+    )
+
     kraken_df["kraken_taxid"] = (
         kraken_df["kraken_taxonomy"]
-        .astype(str)
-        .str.split()
-        .str[-1]
-        .str.strip(')')
-        .astype(int)
+        .str.extract(r"(\d+)\)$", expand=False)
+        .astype("int32")
     )
+    
     if kraken_df["kraken_taxid"].isna().any():
         LOG.warning("Failed to parse some Kraken taxids")
     kraken_df.drop(columns=["kmers"], inplace=True)
