@@ -1,5 +1,6 @@
 import re
 import pandas as pd
+import numpy as np
 import logging
 import random
 import multiprocessing as mp
@@ -7,7 +8,7 @@ from alive_progress import alive_bar
 from collections import defaultdict
 
 import perseus.utils.globals as globals
-from perseus.features.features import compute_bin_features
+from perseus.features.features import compute_bin_features, compute_sequence_bin_features, build_taxonomy_lookup
 from perseus.utils.constants import CANONICAL_RANKS
 from perseus.utils.tax_utils import get_ncbi
 from perseus.features.init import (
@@ -366,43 +367,131 @@ def process_chunk_iter(
             bin_indices = sorted(bin_counts_by_bin.keys())
 
         # Build examples for each predicted taxon
-        for pred_tax in candidates:
-            pred_tax = normalize_taxid(pred_tax)
+        # ------------------------------------------------------------
+        # Prepare sequence-level feature information ONCE
+        # ------------------------------------------------------------
 
-            pred_lineage = globals._shared_lineage_map.get(int(pred_tax), ())
+        # Keep bins in their genomic order.
+        bins_for_sequence = [
+            bin_counts_by_bin[b]
+            for b in bin_indices
+        ]
+
+        # tax_totals already contains every taxid observed in this
+        # sequence, so do not rediscover them for every candidate.
+        sequence_taxids = np.fromiter(
+            tax_totals.keys(),
+            dtype=np.int64,
+            count=len(tax_totals),
+        )
+
+        # Build numerical taxonomy rows ONCE PER SEQUENCE.
+        #
+        # This converts:
+        #
+        #     taxid -> ancestor-at-rank
+        #     taxid -> own canonical rank
+        #
+        # into compact arrays that can be reused for every candidate.
+        taxonomy_lookup = build_taxonomy_lookup(
+            sequence_taxids,
+            CANONICAL_RANKS,
+        )
+
+
+        # ------------------------------------------------------------
+        # Build one example for each candidate predicted taxon
+        # ------------------------------------------------------------
+
+        for pred_tax in candidates:
+
+            pred_tax = normalize_taxid(
+                pred_tax
+            )
+
+            if pred_tax is None:
+                continue
+
+            pred_tax = int(
+                pred_tax
+            )
+
+            # Already precomputed globally.
+            pred_lineage = (
+                globals
+                ._shared_lineage_map
+                .get(
+                    pred_tax,
+                    (),
+                )
+            )
+
             if not pred_lineage:
                 continue
 
-            pred_at_rank = lineage_to_rank_map(pred_lineage, CANONICAL_RANKS)
+            # This already gives:
+            #
+            # {
+            #     "superkingdom": taxid,
+            #     "phylum": taxid,
+            #     ...
+            # }
+            #
+            # so there is no need to call NCBI.get_rank(pred_lineage)
+            # and reconstruct lineage_at_rank separately.
+            pred_at_rank = lineage_to_rank_map(
+                pred_lineage,
+                CANONICAL_RANKS,
+            )
 
-            # Compute once per candidate taxon, passed into every bin call below
-            lineage_ranks = globals.NCBI.get_rank(pred_lineage)
-            lineage_at_rank = {r: None for r in CANONICAL_RANKS}
-            for t in pred_lineage:
-                raw = lineage_ranks.get(t)
-                can = canonicalize_rank(raw)
-                if can in CANONICAL_RANKS and lineage_at_rank[can] is None:
-                    lineage_at_rank[can] = t
+            # --------------------------------------------------------
+            # Per-rank labels
+            # --------------------------------------------------------
 
-            labels_per_rank = []
-            for r in CANONICAL_RANKS:
-                tr = true_at_rank[r]
-                pr = pred_at_rank[r]
-                labels_per_rank.append(1 if (tr is not None and pr is not None and tr == pr) else 0)
+            labels_per_rank = [
+                1
+                if (
+                    true_at_rank[r] is not None
+                    and
+                    pred_at_rank[r] is not None
+                    and
+                    true_at_rank[r] == pred_at_rank[r]
+                )
+                else 0
+                for r in CANONICAL_RANKS
+            ]
 
-            bins_vecs = []
-            for b in bin_indices:
-                kmer_tax_counts = bin_counts_by_bin[b]
-                vec28 = compute_bin_features(kmer_tax_counts, pred_lineage, CANONICAL_RANKS,
-                                             lineage_at_rank=lineage_at_rank)
-                bins_vecs.append(vec28)
+            # --------------------------------------------------------
+            # Compute ALL bins for this candidate at once.
+            #
+            # Candidate ↔ taxid lineage relationships are calculated
+            # only once, then reused across all bins.
+            # --------------------------------------------------------
+
+            bins_vecs = compute_sequence_bin_features(
+                bins=bins_for_sequence,
+                pred_lineage=pred_lineage,
+                canonical_ranks=CANONICAL_RANKS,
+
+                # pred_at_rank is already exactly the mapping needed.
+                lineage_at_rank=pred_at_rank,
+
+                # Reuse taxonomy metadata across candidate taxa.
+                taxonomy_lookup=taxonomy_lookup,
+
+                # Avoid rediscovering the same taxids for every candidate.
+                sequence_taxids=sequence_taxids,
+
+                # Existing writer expects nested Python lists.
+                return_numpy=False,
+            )
 
             yield {
                 "seq_id": seq_id,
-                "taxon": int(pred_tax),
+                "taxon": pred_tax,
                 "true_taxon": int(true_tax),
                 "bins": bins_vecs,
-                "labels_per_rank": labels_per_rank
+                "labels_per_rank": labels_per_rank,
             }
 
 

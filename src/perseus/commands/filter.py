@@ -31,7 +31,7 @@ def get_lineage(ncbi, taxid):
         lineage = ncbi.get_lineage(taxid)
     except ValueError:
         lineage = []
-    return lineage
+    return lineage or []
 
 def run_filter(args):
     LOG.info("Starting filter process...")
@@ -125,6 +125,7 @@ def run_filter(args):
                             names=["classified", "sequence_id", "kraken_taxonomy", "length", "kmers"])
     kraken_df["kraken_taxid"] = (
         kraken_df["kraken_taxonomy"]
+        .astype(str)
         .str.split()
         .str[-1]
         .str.strip(')')
