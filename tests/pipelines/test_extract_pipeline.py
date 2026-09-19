@@ -1,25 +1,11 @@
 import importlib
-from pathlib import Path
-import shutil
-import pickle
 import pytest
 
 MODULE = "perseus.commands.extract"
 
+
 @pytest.mark.pipeline
-def test_build_tax_context_small(monkeypatch, tmp_path):   
-    def fake_copyfile(src, dst, *args, **kwargs):
-        dst_path = Path(dst)
-        dst_path.parent.mkdir(parents=True, exist_ok=True)
-        dst_path.write_bytes(b"")
-        return dst
-
-    def fake_copystat(src, dst, *args, **kwargs):
-        return None
-
-    monkeypatch.setattr(shutil, "copyfile", fake_copyfile)
-    monkeypatch.setattr(shutil, "copystat", fake_copystat)
-    
+def test_collect_unique_taxids_small(tmp_path):
     m = importlib.import_module(MODULE)
 
     # ----------------------------
@@ -29,47 +15,45 @@ def test_build_tax_context_small(monkeypatch, tmp_path):
     kraken_path.write_text(
         "C\tseq1\t(60)\t1000\t60:5 61:3\n"
         "C\tseq2\t(61)\t900\t60:2 10:1\n"
-        "U\tseq3\t(50)\t500\t\n"             # unclassified, has no kmers: should be ignored
+        "U\tseq3\t(50)\t500\t\n"
     )
-    
-    # ----------------------------
-    # Create an empty taxa.sqlite 
-    # ----------------------------  
-    db_path = tmp_path / "taxa.sqlite"
-    db_path.write_bytes(b"")
-
-    # ----------------------------
-    # Monkeypatch multiprocessing to avoid real processes
-    # Force build_tax_context to run extract_tax_context_chunk directly
-    # ----------------------------
-    class FakePool:
-        def __init__(self, *a, **k): pass
-        def __enter__(self): return self
-        def __exit__(self, *a): pass
-        def imap_unordered(self, func, iterable, chunksize=1):
-            for x in iterable:
-                yield func(x)
-
-    monkeypatch.setattr(m.mp, "Pool", FakePool)
 
     # ----------------------------
     # Run the function
     # ----------------------------
-    
-    tax_context = m.build_tax_context(
-        str(kraken_path),
-        str(db_path),
-        rows_per_chunk=1,
-    )
+    taxids = m.collect_unique_taxids(str(kraken_path))
 
     # ----------------------------
     # Validate
     # ----------------------------
-    assert "seq1" in tax_context
-    assert tax_context["seq1"] == {60: 5, 61: 3}
+    assert taxids == {10, 60, 61}
+    
+@pytest.mark.pipeline
+def test_collect_unique_taxids_deduplicates(tmp_path):
+    m = importlib.import_module(MODULE)
 
-    assert "seq2" in tax_context
-    assert tax_context["seq2"] == {60: 2, 10: 1}
+    kraken_path = tmp_path / "small.tsv"
+    kraken_path.write_text(
+        "C\tseq1\t(60)\t1000\t60:5 61:3\n"
+        "C\tseq2\t(60)\t900\t60:20 61:1\n"
+    )
 
-    # seq3 had no kmers, must not appear
-    assert "seq3" not in tax_context
+    taxids = m.collect_unique_taxids(str(kraken_path))
+
+    assert taxids == {60, 61}
+
+
+@pytest.mark.pipeline
+def test_collect_unique_taxids_ignores_invalid_input(tmp_path):
+    m = importlib.import_module(MODULE)
+
+    kraken_path = tmp_path / "small.tsv"
+    kraken_path.write_text(
+        "C\tseq1\t(60)\t1000\t60:5 garbage 61:3\n"
+        "bad\tline\n"
+        "U\tseq3\t(50)\t500\t\n"
+    )
+
+    taxids = m.collect_unique_taxids(str(kraken_path))
+
+    assert taxids == {60, 61}
