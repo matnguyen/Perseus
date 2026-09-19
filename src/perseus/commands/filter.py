@@ -4,6 +4,7 @@ import logging
 import torch
 import glob
 import pandas as pd
+import numpy as np
 from alive_progress import alive_bar
 from pathlib import Path
 
@@ -119,161 +120,575 @@ def run_filter(args):
                 bar()
                 
     LOG.info("Collected scores for %d sequences", len(rows))
-                
-    # Load Kraken output
+
+    # ============================================================
+    # 1. BUILD SCORE DATAFRAME EFFICIENTLY
+    # ============================================================
+    #
+    # Avoid:
+    #   pd.DataFrame(rows)
+    #   followed by one .apply() per probability column.
+    #
+    # Instead, convert all probability vectors into one contiguous
+    # NumPy array and assign the columns directly.
+    #
+
+    LOG.info("Building score dataframe...")
+
+    n_rows = len(rows)
+    prob_cols = [f"prob_{rank}" for rank in CANONICAL_RANKS]
+
+    sequence_ids = [r["sequence_id"] for r in rows]
+
+    # int(...) handles Python ints, NumPy ints, and scalar torch tensors.
+    perseus_taxids = np.fromiter(
+        (int(r["perseus_taxid"]) for r in rows),
+        dtype=np.int64,
+        count=n_rows,
+    )
+
+    probs_array = np.asarray(
+        [r["probs_per_rank"] for r in rows],
+        dtype=np.float32,
+    )
+
+    if probs_array.ndim != 2 or probs_array.shape[1] != len(CANONICAL_RANKS):
+        raise RuntimeError(
+            f"Unexpected probability array shape: {probs_array.shape}; "
+            f"expected (*, {len(CANONICAL_RANKS)})"
+        )
+
+    output_df = pd.DataFrame({
+        "sequence_id": sequence_ids,
+        "perseus_taxid": perseus_taxids,
+    })
+
+    # Assign all probability columns in one operation.
+    output_df[prob_cols] = probs_array
+
+    # Make sure merge key has the same dtype on both sides.
+    output_df["sequence_id"] = output_df["sequence_id"].astype("string")
+
+    # rows/probability Python objects are no longer needed.
+    del rows
+    del probs_array
+    del sequence_ids
+    del perseus_taxids
+
+    LOG.info("Score dataframe built")
+
+
+    # ============================================================
+    # 2. LOAD ONLY THE KRAKEN COLUMNS WE ACTUALLY NEED
+    # ============================================================
+    #
+    # The k-mer column can be enormous.
+    #
+    # Do NOT load it just to immediately drop it.
+    #
+
+    LOG.info("Loading Kraken output...")
+
+    kraken_column_names = [
+        "classified",
+        "sequence_id",
+        "kraken_taxonomy",
+        "length",
+        "kmers",
+    ]
+
     kraken_df = pd.read_csv(
         args.input_kraken,
         sep="\t",
         header=None,
-        usecols=[0, 1, 2, 3],
-        names=[
+        names=kraken_column_names,
+
+        # Important: completely skip the k-mer column.
+        usecols=[
             "classified",
             "sequence_id",
             "kraken_taxonomy",
             "length",
         ],
+
         dtype={
-            "classified": "category",
+            "classified": "string",
             "sequence_id": "string",
-            "length": "int64",
+            "kraken_taxonomy": "string",
         },
     )
 
-    kraken_df["kraken_taxid"] = (
-        kraken_df["kraken_taxonomy"]
-        .str.extract(r"(\d+)\)$", expand=False)
-        .astype("int32")
+    # Extract final numeric taxid.
+    #
+    # This replaces:
+    #
+    #   .astype(str)
+    #   .str.split()
+    #   .str[-1]
+    #   .str.strip(")")
+    #
+    # with a single extraction operation.
+    taxid_text = kraken_df["kraken_taxonomy"].str.extract(
+        r"(\d+)\)?\s*$",
+        expand=False,
     )
-    
-    if kraken_df["kraken_taxid"].isna().any():
-        LOG.warning("Failed to parse some Kraken taxids")
-    kraken_df.drop(columns=["kmers"], inplace=True)
-    LOG.info("Loaded Kraken output with %d entries", len(kraken_df))
-    
-    output_df = pd.DataFrame(rows)
-    merged_df = pd.merge(kraken_df, output_df, on=["sequence_id"], how="outer")
+
+    kraken_df["kraken_taxid"] = pd.to_numeric(
+        taxid_text,
+        errors="coerce",
+    )
+
+    bad_taxids = kraken_df["kraken_taxid"].isna()
+
+    if bad_taxids.any():
+        LOG.warning(
+            "Failed to parse Kraken taxid for %d rows",
+            int(bad_taxids.sum()),
+        )
+
+    # Invalid/missing taxonomy becomes taxid 0.
+    kraken_df["kraken_taxid"] = (
+        kraken_df["kraken_taxid"]
+        .fillna(0)
+        .astype(np.int64)
+    )
+
+    LOG.info(
+        "Loaded Kraken output with %d entries",
+        len(kraken_df),
+    )
+
+
+    # ============================================================
+    # 3. MERGE SCORES WITH KRAKEN
+    # ============================================================
+    #
+    # A LEFT join is normally sufficient here because Kraken is the
+    # authoritative set of sequences we are filtering.
+    #
+    # This is cheaper than OUTER and avoids score-only rows.
+    #
+    # If you intentionally need rows present in scores but absent
+    # from Kraken, change this back to how="outer".
+    #
+
+    LOG.info("Merging Kraken and Perseus outputs...")
+
+    merged_df = kraken_df.merge(
+        output_df,
+        on="sequence_id",
+        how="left",
+        sort=False,
+    )
+
+    del output_df
+    del kraken_df
+
     if merged_df.empty:
-        LOG.error("Merged dataframe is empty. No rows matched between Kraken and Perseus outputs")
+        LOG.error(
+            "Merged dataframe is empty. "
+            "No rows matched between Kraken and Perseus outputs"
+        )
         raise SystemExit(1)
-    LOG.info("Kraken rows: %d", len(kraken_df))
-    LOG.info("Scored rows: %d", len(rows))
+
     LOG.info("Merged rows: %d", len(merged_df))
-    
-    for idx, rank in enumerate(CANONICAL_RANKS):
-        merged_df[f"prob_{rank}"] = merged_df["probs_per_rank"].apply(lambda x: x[idx] if isinstance(x, list) and len(x) > idx else None)
-    
-    merged_df.drop(columns=["probs_per_rank"], inplace=True)
+
+    # Any sequence that was not scored gets taxid 0.
+    merged_df["perseus_taxid"] = (
+        merged_df["perseus_taxid"]
+        .fillna(0)
+        .astype(np.int64)
+    )
+
+
+    # ============================================================
+    # 4. OPTIONAL FULL OUTPUT
+    # ============================================================
+
     if args.output_all:
         base, ext = os.path.splitext(args.output_path)
         full_output_path = f"{base}.full{ext}"
-        merged_df.to_csv(full_output_path, sep="\t", index=False, float_format="%.6f")
-        LOG.info("Full filtered Kraken output saved to %s", full_output_path)
-    
-    merged_df['perseus_taxid'] = merged_df['perseus_taxid'].fillna(0)
-    merged_df['perseus_taxid'] = merged_df['perseus_taxid'].astype(int)
-    
-    unique_truth = merged_df["kraken_taxid"].unique()
-    
+
+        merged_df.to_csv(
+            full_output_path,
+            sep="\t",
+            index=False,
+            float_format="%.6f",
+        )
+
+        LOG.info(
+            "Full filtered Kraken output saved to %s",
+            full_output_path,
+        )
+
+
+    # ============================================================
+    # 5. BUILD ONE SHARED TAXONOMY LINEAGE CACHE
+    # ============================================================
+    #
+    # Previously:
+    #
+    #   Kraken lineages
+    #   +
+    #   Perseus lineages
+    #
+    # were queried independently.
+    #
+    # That means overlapping taxids could hit ETE3 twice.
+    #
+    # Now every unique taxid gets exactly one lineage lookup.
+    #
+
     ncbi = get_ncbi(args.db_dir)
-    LOG.info("Loaded ETE3 taxonomy database from %s", Path(args.db_dir).expanduser().resolve())
-    
-    lineage_cache = {}
 
-    with alive_bar(len(unique_truth), title="Caching lineages") as bar:
-        for t in unique_truth:
-            lineage_cache[t] = set(get_lineage(ncbi, t)) 
-            bar()
-            
-    unique_perseus = merged_df["perseus_taxid"].unique()
-    rank_cache = {}
+    LOG.info(
+        "Loaded ETE3 taxonomy database from %s",
+        Path(args.db_dir).expanduser().resolve(),
+    )
 
-    with alive_bar(len(unique_perseus), title="Caching ranks") as bar:
-        for tx in unique_perseus:
-            rank_cache[tx] = get_rank(ncbi, tx)
-            bar()
-            
-    perseus_lineage_list_cache = {}
+    unique_kraken = set(
+        int(x)
+        for x in merged_df["kraken_taxid"].unique()
+        if int(x) > 0
+    )
 
-    with alive_bar(len(unique_perseus), title="Caching Perseus lineages") as bar:
-        for tx in unique_perseus:
-            perseus_lineage_list_cache[tx] = get_lineage(ncbi, tx)
+    unique_perseus = set(
+        int(x)
+        for x in merged_df["perseus_taxid"].unique()
+        if int(x) > 0
+    )
+
+    all_taxids = unique_kraken | unique_perseus
+
+    LOG.info(
+        "Caching lineages for %d unique taxids "
+        "(%d Kraken, %d Perseus)",
+        len(all_taxids),
+        len(unique_kraken),
+        len(unique_perseus),
+    )
+
+    lineage_list_cache = {}
+
+    with alive_bar(
+        len(all_taxids),
+        title="Caching lineages",
+    ) as bar:
+
+        for tx in all_taxids:
+            lineage_list_cache[tx] = get_lineage(ncbi, tx)
             bar()
+
+    # Invalid/unclassified taxid.
+    lineage_list_cache[0] = []
+
+    # Set representation specifically for fast membership checks.
+    lineage_set_cache = {
+        tx: frozenset(lineage)
+        for tx, lineage in lineage_list_cache.items()
+    }
+
+
+    # ============================================================
+    # 6. BULK-RANK LOOKUP FOR ALL TAXONOMY NODES
+    # ============================================================
+    #
+    # This is an important improvement over:
+    #
+    #   for tx:
+    #       ncbi.get_rank([tx])
+    #
+    # and:
+    #
+    #   for lineage:
+    #       ncbi.get_rank(lineage)
+    #
+    # Gather every ancestor that we will ever need and call
+    # ETE3 get_rank() ONCE.
+    #
+
+    LOG.info("Collecting unique taxonomy ancestors...")
+
+    all_rank_taxids = set(unique_perseus)
+
+    for lineage in lineage_list_cache.values():
+        all_rank_taxids.update(lineage)
+
+    LOG.info(
+        "Bulk-querying ranks for %d taxonomy nodes",
+        len(all_rank_taxids),
+    )
+
+    if all_rank_taxids:
+        all_rank_map = ncbi.get_rank(
+            list(all_rank_taxids)
+        )
+    else:
+        all_rank_map = {}
+
+    # Direct predicted-rank cache.
+    rank_cache = {
+        tx: all_rank_map.get(tx, "no_rank")
+        for tx in unique_perseus
+    }
+
+    rank_cache[0] = "no_rank"
+
+
+    # ============================================================
+    # 7. PRECOMPUTE ANCESTOR AT EACH CANONICAL RANK
+    # ============================================================
+
+    canonical_rank_set = set(CANONICAL_RANKS)
 
     ancestor_at_rank_cache = {}
 
-    with alive_bar(len(unique_perseus), title="Caching ancestors at ranks") as bar:
+    LOG.info("Building rank-specific ancestor cache...")
+
+    with alive_bar(
+        len(unique_perseus),
+        title="Caching ancestors at ranks",
+    ) as bar:
+
         for tx in unique_perseus:
-            lineage = perseus_lineage_list_cache[tx]
-            lineage_ranks = ncbi.get_rank(lineage) if lineage else {}
+
+            lineage = lineage_list_cache.get(tx, [])
 
             rank_to_taxid = {}
-            for anc in reversed(lineage):   # deepest -> root
-                r = lineage_ranks.get(anc)
-                if r == 'kingdom':
-                    r = 'superkingdom'
-                if r in CANONICAL_RANKS and r not in rank_to_taxid:
-                    rank_to_taxid[r] = anc
+
+            # deepest -> root
+            for anc in reversed(lineage):
+
+                rank = all_rank_map.get(anc)
+
+                if rank == "kingdom":
+                    rank = "superkingdom"
+
+                if (
+                    rank in canonical_rank_set
+                    and rank not in rank_to_taxid
+                ):
+                    rank_to_taxid[rank] = anc
 
             ancestor_at_rank_cache[tx] = rank_to_taxid
-            bar()
-    
-    LOG.debug("Cached %d Kraken taxid lineages", len(lineage_cache))
-    LOG.debug("Cached %d Perseus taxid ranks", len(rank_cache))
-    LOG.debug("Cached %d Perseus taxid lineages", len(perseus_lineage_list_cache))
-    LOG.debug("Cached %d Perseus taxid ancestor-at-rank mappings", len(ancestor_at_rank_cache))
-    
-    perseus_in_lineage = []
-    perseus_predicted_rank = []
 
-    with alive_bar(len(merged_df)) as bar:
-        for _, row in merged_df.iterrows():
-            lin = lineage_cache[row["kraken_taxid"]]
-            perseus_in_lineage.append(row["perseus_taxid"] in lin)
-            perseus_predicted_rank.append(rank_cache[row["perseus_taxid"]])
             bar()
 
-    merged_df["perseus_in_lineage"] = perseus_in_lineage
-    merged_df["perseus_predicted_rank"] = perseus_predicted_rank
-            
+    ancestor_at_rank_cache[0] = {}
+
+    LOG.info(
+        "Cached %d unique lineages",
+        len(lineage_list_cache),
+    )
+
+    LOG.info(
+        "Cached %d predicted ranks",
+        len(rank_cache),
+    )
+
+    LOG.info(
+        "Cached %d ancestor maps",
+        len(ancestor_at_rank_cache),
+    )
+
+
+    # ============================================================
+    # 8. COMPUTE LINEAGE MEMBERSHIP WITHOUT iterrows()
+    # ============================================================
+    #
+    # iterrows() is especially expensive on millions of rows because
+    # pandas constructs a Series for every single row.
+    #
+    # Using NumPy arrays + set membership avoids that overhead.
+    #
+
+    LOG.info("Computing lineage membership...")
+
+    kraken_taxids_array = merged_df[
+        "kraken_taxid"
+    ].to_numpy(
+        dtype=np.int64,
+        copy=False,
+    )
+
+    perseus_taxids_array = merged_df[
+        "perseus_taxid"
+    ].to_numpy(
+        dtype=np.int64,
+        copy=False,
+    )
+
+    empty_lineage = frozenset()
+
+    merged_df["perseus_in_lineage"] = np.fromiter(
+        (
+            ptx in lineage_set_cache.get(
+                ktx,
+                empty_lineage,
+            )
+            for ktx, ptx in zip(
+                kraken_taxids_array,
+                perseus_taxids_array,
+            )
+        ),
+        dtype=np.bool_,
+        count=len(merged_df),
+    )
+
+    # Completely vectorized rank assignment.
+    merged_df["perseus_predicted_rank"] = (
+        merged_df["perseus_taxid"]
+        .map(rank_cache)
+        .fillna("no_rank")
+    )
+
+    del kraken_taxids_array
+    del perseus_taxids_array
+
+
+    # ============================================================
+    # 9. SELECT FINAL CANDIDATE
+    # ============================================================
+
     LOG.info("Selecting one candidate row per sequence...")
+
     filtered_df = select_one_row_per_seq(
         merged_df,
         sequence_col="sequence_id",
-        ranks=["superkingdom","phylum","class","order","family","genus","species"],
-        thresholds=0.5,          
+        ranks=[
+            "superkingdom",
+            "phylum",
+            "class",
+            "order",
+            "family",
+            "genus",
+            "species",
+        ],
+        thresholds=0.5,
         prefer_lineage=False,
         tie_breaker="sum_to_rank",
     )
-    
-    def get_final_taxid_from_cache(row):
-        base_taxid = row["perseus_taxid"]
-        chosen_rank = row["chosen_rank"]
 
-        if pd.isna(base_taxid) or pd.isna(chosen_rank):
-            return None
+    # merged_df can be large; release it as soon as possible.
+    del merged_df
 
-        try:
-            base_taxid = int(base_taxid)
-        except Exception:
-            return None
 
-        return ancestor_at_rank_cache.get(base_taxid, {}).get(chosen_rank, base_taxid)
-    
-    filtered_df["perseus_taxid"] = filtered_df.apply(get_final_taxid_from_cache, axis=1)
-    
-    final_taxids = pd.Series(filtered_df["perseus_taxid"].dropna().unique()).astype(int).tolist()
-    name_cache = ncbi.get_taxid_translator(final_taxids) if final_taxids else {}
-    filtered_df["perseus_taxonomy"] = filtered_df["perseus_taxid"].map(name_cache)
-    
-    LOG.info("Selected %d final rows", len(filtered_df))
-    
+    # ============================================================
+    # 10. FINAL TAXID BACKOFF WITHOUT apply(axis=1)
+    # ============================================================
+    #
+    # Previously:
+    #
+    # filtered_df.apply(get_final_taxid_from_cache, axis=1)
+    #
+    # generated a pandas Series for every row.
+    #
+    # Instead, construct one taxid lookup per rank and use pandas.map().
+    #
+
+    LOG.info("Applying rank-specific taxonomic backoff...")
+
+    ancestor_lookup_by_rank = {
+        rank: {
+            tx: rank_map.get(rank, tx)
+            for tx, rank_map in ancestor_at_rank_cache.items()
+        }
+        for rank in CANONICAL_RANKS
+    }
+
+    base_taxids = (
+        pd.to_numeric(
+            filtered_df["perseus_taxid"],
+            errors="coerce",
+        )
+        .astype("Int64")
+    )
+
+    chosen_ranks = filtered_df["chosen_rank"]
+
+    final_taxids = base_taxids.copy()
+
+    # Preserve old behavior: missing rank -> missing final taxid.
+    final_taxids.loc[chosen_ranks.isna()] = pd.NA
+
+    for rank in CANONICAL_RANKS:
+
+        mask = (
+            chosen_ranks.eq(rank)
+            & base_taxids.notna()
+        )
+
+        if not mask.any():
+            continue
+
+        mapped = base_taxids.loc[mask].map(
+            ancestor_lookup_by_rank[rank]
+        )
+
+        # Same fallback behavior as the old function:
+        # if no rank-specific ancestor exists, retain base taxid.
+        final_taxids.loc[mask] = (
+            mapped
+            .fillna(base_taxids.loc[mask])
+            .astype("Int64")
+        )
+
+    filtered_df["perseus_taxid"] = final_taxids
+
+    del ancestor_lookup_by_rank
+    del final_taxids
+    del base_taxids
+
+
+    # ============================================================
+    # 11. TAXID -> NAME IN ONE BULK QUERY
+    # ============================================================
+
+    final_unique_taxids = (
+        filtered_df["perseus_taxid"]
+        .dropna()
+        .astype(np.int64)
+        .unique()
+        .tolist()
+    )
+
+    if final_unique_taxids:
+        name_cache = ncbi.get_taxid_translator(
+            final_unique_taxids
+        )
+    else:
+        name_cache = {}
+
+    filtered_df["perseus_taxonomy"] = (
+        filtered_df["perseus_taxid"]
+        .map(name_cache)
+    )
+
+    LOG.info(
+        "Selected %d final rows",
+        len(filtered_df),
+    )
+
+
+    # ============================================================
+    # 12. DROP TEMPORARY COLUMNS
+    # ============================================================
+
     filtered_df.drop(
-        columns=["perseus_in_lineage", "perseus_predicted_rank", "chosen_rank_ix"],
+        columns=[
+            "perseus_in_lineage",
+            "perseus_predicted_rank",
+            "chosen_rank_ix",
+        ],
         inplace=True,
         errors="ignore",
     )
 
-    prob_cols = [f"prob_{rank}" for rank in CANONICAL_RANKS]
+
+    # ============================================================
+    # 13. FINAL COLUMN ORDER
+    # ============================================================
+
     ordered_cols = [
         "classified",
         "sequence_id",
@@ -286,12 +701,31 @@ def run_filter(args):
         "chosen_prob_at_rank",
     ] + prob_cols
 
-    filtered_df = filtered_df[[c for c in ordered_cols if c in filtered_df.columns]]
-    
-    filtered_output_path = args.output_path
-    filtered_df.to_csv(filtered_output_path, sep="\t", index=False, float_format="%.6f")
-    LOG.info("Filtered output saved to %s", filtered_output_path)
-    
+    filtered_df = filtered_df[
+        [
+            col
+            for col in ordered_cols
+            if col in filtered_df.columns
+        ]
+    ]
+
+
+    # ============================================================
+    # 14. WRITE OUTPUT
+    # ============================================================
+
+    filtered_df.to_csv(
+        args.output_path,
+        sep="\t",
+        index=False,
+        float_format="%.6f",
+    )
+
+    LOG.info(
+        "Filtered output saved to %s",
+        args.output_path,
+    )
+
     return filtered_df
 
 def main():
