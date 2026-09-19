@@ -1,236 +1,476 @@
 #!/usr/bin/env python3
+
 import os
-import pandas as pd
-import argparse as ap
-import logging
-import multiprocessing as mp
-from alive_progress import alive_bar
-import gc
-import math
+
+# Must happen before NumPy/Pandas load BLAS.
+os.environ.setdefault(
+    "OMP_NUM_THREADS",
+    "1",
+)
+os.environ.setdefault(
+    "OPENBLAS_NUM_THREADS",
+    "1",
+)
+os.environ.setdefault(
+    "MKL_NUM_THREADS",
+    "1",
+)
+os.environ.setdefault(
+    "NUMEXPR_NUM_THREADS",
+    "1",
+)
+
+import re
 import glob
 import json
 import shutil
+import logging
+import argparse as ap
+import multiprocessing as mp
+
 from pathlib import Path
 
+import pandas as pd
+from alive_progress import alive_bar
+
 import perseus.utils.globals as globals_mod
-from perseus.utils.constants import CANONICAL_RANKS, N_CHANNELS
+
+from perseus.utils.constants import (
+    CANONICAL_RANKS,
+    N_CHANNELS,
+)
+
 from perseus.utils.tax_utils import (
     get_ncbi,
     normalize_taxid,
-    fetch_maps
+    canonicalize_rank,
+    get_canonical_taxid_for_rank,
 )
+
 from perseus.features.init import (
     init_worker,
-    effective_nprocs
+    init_feature_worker,
+    effective_nprocs,
 )
+
+from perseus.features.tax_precompute import (
+    init_taxonomy_map_worker,
+    fetch_feature_maps,
+)
+
 from perseus.features.processing import (
     process_chunk_and_write,
     process_chunk_and_write_wrapper,
-    build_tax_context
 )
 
-# --- Kill hidden thread oversubscription (BLAS/numexpr/etc.) ---
-os.environ.setdefault("OMP_NUM_THREADS", "1")
-os.environ.setdefault("OPENBLAS_NUM_THREADS", "1")
-os.environ.setdefault("MKL_NUM_THREADS", "1")
-os.environ.setdefault("NUMEXPR_NUM_THREADS", "1")
+LOG = logging.getLogger(
+    __name__
+)
 
-LOG = logging.getLogger(__name__)
+TOKEN_RE = re.compile(
+    r"(\d+):(\d+)"
+)
+
+
+def collect_unique_taxids(
+    file_path,
+):
+    """
+    Lightweight first pass.
+
+    Does NOT build:
+        sequence -> taxid -> count
+
+    It only collects the distinct taxids needed for
+    taxonomy precomputation.
+    """
+
+    taxids = set()
+
+    with open(
+        file_path,
+        "r",
+        encoding="utf-8",
+        errors="replace",
+    ) as fh:
+
+        for line in fh:
+
+            parts = (
+                line.rstrip("\n")
+                .split("\t", 4)
+            )
+
+            if len(parts) < 5:
+                continue
+
+            kmers = parts[4]
+
+            for match in TOKEN_RE.finditer(
+                kmers
+            ):
+
+                try:
+                    tid = normalize_taxid(
+                        int(
+                            match.group(1)
+                        )
+                    )
+
+                except Exception:
+                    continue
+
+                if tid is not None:
+                    taxids.add(
+                        int(tid)
+                    )
+
+    return taxids
+
 
 def read_kraken_file(
-        file_path,
-        output_path, 
-        db_path,
-        rows_per_chunk=5000, 
-        threads=0, 
-        max_bins_per_seq=None,
-        shard_size=4096, 
-        target_length=1024, 
-        to_dtype="float32",
-        min_tax_kmers=10,
-    ):
-    LOG.info("Starting feature extraction...")
-    LOG.info("Input file: %s", file_path)
-    LOG.info("Output directory: %s", output_path)
-    LOG.info("Threads: %d", threads if threads > 0 else effective_nprocs())
-    LOG.info("Minimum k-mers per taxon: %d", min_tax_kmers)
-    LOG.debug("Starting read_kraken_file with file_path=%s, output_path=%s, rows_per_chunk=%d", file_path, output_path, rows_per_chunk)
-    
-    # Set vars needed only for training
+    file_path,
+    output_path,
+    db_path,
+    rows_per_chunk=5000,
+    threads=0,
+    max_bins_per_seq=None,
+    shard_size=4096,
+    target_length=1024,
+    to_dtype="float32",
+    min_tax_kmers=10,
+):
+
+    LOG.info(
+        "Starting feature extraction..."
+    )
+
     mess_true_file = None
     mess_input_file = None
     topk_taxa = None
     neg_extra = None
     is_training = False
 
-    # Build tax_context
-    LOG.info("Precomputing sequence → taxid k-mer count map from %s", file_path)
-    tax_context = build_tax_context(file_path, db_path, rows_per_chunk=rows_per_chunk, prefetch_buf=64, dispatch_batch=6, threads=threads)
-    
-    if len(tax_context) == 0:
-        LOG.error("No valid taxonomic evidence could be built from the input file. Please check the file format and contents.")
-        raise SystemExit(1)
-    
-    LOG.debug("Built taxonomic context: %d sequences with aggregated k-mer taxid counts", len(tax_context))
+    nprocs = (
+        effective_nprocs()
+        if threads == 0
+        else int(threads)
+    )
 
-    # Collect all numeric taxids
-    LOG.info("Collecting unique numeric taxids...")
-    all_taxids = set()
-    for _, counts in tax_context.items():
-        for t in counts.keys():
-            try:
-                all_taxids.add(normalize_taxid(int(t)))
-            except ValueError:
-                LOG.debug("Skipping non-numeric taxid: %s", t)
-                continue    
-    LOG.debug("Collected %d unique numeric taxids", len(all_taxids))
+    # ========================================================
+    # Lightweight unique-taxid pass
+    # ========================================================
 
-    lineage_map, descendant_map, canonical_map = {}, {}, {}
-    if threads == 0:
-        nprocs = effective_nprocs()
-        LOG.info("Precomputing lineage/descendant maps for %d taxids using %d processes", len(all_taxids), nprocs)
-        work = [(tid, db_path) for tid in all_taxids]
-        with mp.Pool(processes=nprocs, maxtasksperchild=200) as pool:
-            for tid, lineage, descendants, canonicals in pool.imap_unordered(fetch_maps, work, chunksize=rows_per_chunk):
-                lineage_map[tid]    = lineage
-                descendant_map[tid] = descendants
-                canonical_map[tid]  = canonicals
-    elif threads == 1:
-        LOG.info("Precomputing lineage/descendant maps for %d taxids using single-threaded mode", len(all_taxids))
-        for tid in all_taxids:
-            tid, lineage, descendants, canonicals = fetch_maps((tid, db_path))
-            lineage_map[tid]    = lineage
-            descendant_map[tid] = descendants
-            canonical_map[tid]  = canonicals
+    LOG.info(
+        "Collecting unique taxids..."
+    )
+
+    all_taxids = (
+        collect_unique_taxids(
+            file_path
+        )
+    )
+
+    if not all_taxids:
+        raise RuntimeError(
+            "No valid taxonomic evidence "
+            "was found"
+        )
+
+    LOG.info(
+        "Found %d unique taxids",
+        len(all_taxids),
+    )
+
+    # ========================================================
+    # Precompute only taxonomy information actually used
+    # ========================================================
+
+    lineage_map = {}
+    canonical_map = {}
+    rank_idx_map = {}
+
+    # Kept only for compatibility with existing init_worker.
+    descendant_map = {}
+
+    if nprocs <= 1:
+
+        globals_mod.NCBI = get_ncbi(
+            db_path
+        )
+
+        iterator = map(
+            fetch_feature_maps,
+            all_taxids,
+        )
+
+        for (
+            tid,
+            lineage,
+            canonicals,
+            rank_idx,
+        ) in iterator:
+
+            lineage_map[tid] = (
+                lineage
+            )
+
+            canonical_map[tid] = (
+                canonicals
+            )
+
+            rank_idx_map[tid] = (
+                rank_idx
+            )
+
     else:
-        nprocs = threads
-        LOG.info("Precomputing lineage/descendant maps for %d taxids using %d processes (user-specified)", len(all_taxids), nprocs)
-        work = [(tid, db_path) for tid in all_taxids]
-        with mp.Pool(processes=nprocs, maxtasksperchild=200) as pool:
-            for tid, lineage, descendants, canonicals in pool.imap_unordered(fetch_maps, work, chunksize=rows_per_chunk):
-                lineage_map[tid]    = lineage
-                descendant_map[tid] = descendants
-                canonical_map[tid]  = canonicals
-    LOG.info("Completed precomputing taxonomic maps")
-    
-    # Process CSV in parallel, writing outputs in workers
-    out_dir = Path(output_path)
-    out_dir.mkdir(parents=True, exist_ok=True)
-    LOG.debug(f"Output directory: {str(out_dir)}")
 
-    nprocs = effective_nprocs() if threads == 0 else threads
-    LOG.info(f"Processing with %d workers; writing under %s", nprocs if threads==0 else threads, str(out_dir))
-    
-    # Count total rows for better chunk size calculation
-    LOG.info("Counting rows in input file...")
-    with open(file_path, "r") as fh:
-        total_rows = sum(1 for _ in fh)
-    LOG.info(f"Total rows in file: %d", total_rows)
-    
-    # Adjust chunksize based on number of workers 
-    adjusted_chunksize = max(total_rows // (nprocs * 10), rows_per_chunk)
-    n_chunks = math.ceil(total_rows / adjusted_chunksize)
-    LOG.debug("Adjusted chunksize for reading: %d", adjusted_chunksize)
+        # Taxonomy operations vary in cost.
+        # 128 gives much better load balancing than using
+        # rows_per_chunk (which may be ~20,000).
+        map_chunksize = 128
 
-    wrote_rows = 0
-    wrote_files = 0
+        with mp.Pool(
+            processes=nprocs,
+            initializer=init_taxonomy_map_worker,
+            initargs=(db_path,),
+        ) as pool:
 
-    # Shared manifest list for shards    
+            iterator = pool.imap_unordered(
+                fetch_feature_maps,
+                all_taxids,
+                chunksize=map_chunksize,
+            )
+
+            with alive_bar(
+                len(all_taxids),
+                title="Precomputing taxonomy",
+            ) as bar:
+
+                for (
+                    tid,
+                    lineage,
+                    canonicals,
+                    rank_idx,
+                ) in iterator:
+
+                    lineage_map[tid] = lineage
+                    canonical_map[tid] = canonicals
+                    rank_idx_map[tid] = rank_idx
+
+                    bar()
+
+    LOG.info(
+        "Taxonomy precomputation complete"
+    )
+
+    # ========================================================
+    # Output
+    # ========================================================
+
+    out_dir = Path(
+        output_path
+    )
+
+    out_dir.mkdir(
+        parents=True,
+        exist_ok=True,
+    )
+
+    # Existing init_worker accepts tax_context.
+    # Feature extraction no longer needs the huge map.
+    tax_context = {}
+
     manager = mp.Manager()
-    manifest_paths = manager.list() 
 
-    LOG.info("Starting chunked processing of Kraken output...")
+    manifest_paths = (
+        manager.list()
+    )
+
+    # ========================================================
+    # Single actual processing pass
+    # ========================================================
+
     with pd.read_csv(
-        file_path, sep='\t', header=None,
-        names=['Classified', 'ID', 'Taxonomy', 'Length', 'Kmers'],
-        dtype={'Classified': 'category', 'ID': 'string', 'Taxonomy': 'string', 'Length': 'int32', 'Kmers': 'string'},
-        engine='c',
-        chunksize=adjusted_chunksize
+        file_path,
+        sep="\t",
+        header=None,
+        names=[
+            "Classified",
+            "ID",
+            "Taxonomy",
+            "Length",
+            "Kmers",
+        ],
+        dtype={
+            "Classified": "category",
+            "ID": "string",
+            "Taxonomy": "string",
+            "Length": "int32",
+            "Kmers": "string",
+        },
+        engine="c",
+        chunksize=rows_per_chunk,
     ) as reader:
 
-        if threads == 0:
+        if nprocs <= 1:
+
+            init_worker(
+                tax_context,
+                lineage_map,
+                descendant_map,
+                canonical_map,
+                str(out_dir),
+                db_path,
+                shard_size,
+                target_length,
+                to_dtype,
+                manifest_paths,
+            )
+
+            globals_mod._shared_rank_idx_map = (
+                rank_idx_map
+            )
+
+            with alive_bar(
+                title="Processing chunks",
+                unknown="dots_waves",
+            ) as bar:
+
+                for chunk in reader:
+
+                    process_chunk_and_write(
+                        chunk,
+                        max_bins_per_seq=(
+                            max_bins_per_seq
+                        ),
+                        mess_true_file=(
+                            mess_true_file
+                        ),
+                        mess_input_file=(
+                            mess_input_file
+                        ),
+                        topk_taxa=topk_taxa,
+                        min_tax_kmers=(
+                            min_tax_kmers
+                        ),
+                        neg_extra=neg_extra,
+                        is_training=(
+                            is_training
+                        ),
+                    )
+
+                    bar()
+
+        else:
+
             with mp.Pool(
                 processes=nprocs,
-                initializer=init_worker,
-                initargs=(tax_context, lineage_map, descendant_map, canonical_map, str(out_dir), db_path,
-                          shard_size, target_length, to_dtype, manifest_paths),
-                maxtasksperchild=200
+                initializer=init_feature_worker,
+                initargs=(
+                    tax_context,
+                    lineage_map,
+                    descendant_map,
+                    canonical_map,
+                    rank_idx_map,
+                    str(out_dir),
+                    db_path,
+                    shard_size,
+                    target_length,
+                    to_dtype,
+                    manifest_paths,
+                ),
             ) as pool:
+
                 results = pool.imap_unordered(
                     process_chunk_and_write_wrapper,
-                    ((chunk, max_bins_per_seq, mess_true_file, mess_input_file, topk_taxa, min_tax_kmers, neg_extra, is_training) for chunk in reader),
-                    chunksize=1
+                    (
+                        (
+                            chunk,
+                            max_bins_per_seq,
+                            mess_true_file,
+                            mess_input_file,
+                            topk_taxa,
+                            min_tax_kmers,
+                            neg_extra,
+                            is_training,
+                        )
+                        for chunk in reader
+                    ),
+                    chunksize=1,
                 )
-                with alive_bar(n_chunks, title="Processing chunks") as bar:
-                    for meta in results:
-                        if meta:
-                            wrote_rows  += int(meta.get('rows', 0))
-                            wrote_files += 1
-                        bar()
-                        gc.collect()
 
-        elif threads == 1:
-            init_worker(tax_context, lineage_map, descendant_map, canonical_map, str(out_dir), db_path,
-                        shard_size, target_length, to_dtype, manifest_paths)
-            for chunk in reader:
-                meta = process_chunk_and_write(
-                    chunk,
-                    mess_true_file=mess_true_file,
-                    mess_input_file=mess_input_file,
-                    topk_taxa=topk_taxa, 
-                    max_bins_per_seq=max_bins_per_seq,
-                    min_tax_kmers=min_tax_kmers,
-                    neg_extra=neg_extra,
-                    is_training=is_training
-                )
-                if meta:
-                    wrote_rows  += int(meta.get('rows', 0))
-                    wrote_files += 1
-                gc.collect()
-        else:
-            with mp.Pool(
-                processes=threads,
-                initializer=init_worker,
-                initargs=(tax_context, lineage_map, descendant_map, canonical_map, str(out_dir), db_path,
-                          shard_size, target_length, to_dtype, manifest_paths),
-                maxtasksperchild=200
-            ) as pool:
-                results = pool.imap_unordered(
-                    process_chunk_and_write_wrapper,
-                    ((chunk, max_bins_per_seq, mess_true_file, mess_input_file, topk_taxa, min_tax_kmers, neg_extra, is_training) for chunk in reader),
-                    chunksize=1
-                )
-                with alive_bar(n_chunks, title="Processing chunks") as bar:
-                    for meta in results:
-                        if meta:
-                            wrote_rows  += int(meta.get('rows', 0))
-                            wrote_files += 1
-                        bar()
-                        gc.collect()
+                with alive_bar(
+                    title=(
+                        "Processing chunks"
+                    ),
+                    unknown="dots_waves",
+                ) as bar:
 
-    LOG.info(f"Wrote %d part files (~%d rows) under %s", wrote_files, wrote_rows, str(out_dir))
-    
-    # Write manifest json 
+                    for _ in results:
+                        # No gc.collect() after every chunk.
+                        bar()
+
+    # ========================================================
+    # Manifest
+    # ========================================================
+
     mani = {
-        "source": str(file_path),
-        "outputs": list(manifest_paths) if manifest_paths is not None else [],
+        "source": str(
+            file_path
+        ),
+        "outputs": list(
+            manifest_paths
+        ),
         "channels": N_CHANNELS,
-        "target_length": int(target_length),
-        "dtype": str(to_dtype),
+        "target_length": int(
+            target_length
+        ),
+        "dtype": str(
+            to_dtype
+        ),
         "shard_size": shard_size,
         "topk_taxa": topk_taxa,
-        "min_tax_kmers": min_tax_kmers,
+        "min_tax_kmers": (
+            min_tax_kmers
+        ),
         "neg_extra": neg_extra,
-        "counts": {"approx_rows": int(wrote_rows), "files": int(wrote_files)},
         "labels": {
-            "labels_per_rank": f"length {len(CANONICAL_RANKS)}; equality per canonical rank",
-            "rank_index": f"index in CANONICAL_RANKS: {CANONICAL_RANKS}"
-        }
+            "labels_per_rank": (
+                f"length "
+                f"{len(CANONICAL_RANKS)}; "
+                f"equality per canonical rank"
+            ),
+            "rank_index": (
+                f"index in CANONICAL_RANKS: "
+                f"{CANONICAL_RANKS}"
+            ),
+        },
     }
-    mani_path = out_dir / "manifest.json"
-    with open(mani_path, "w") as f:
-        json.dump(mani, f, indent=2)
-    LOG.info("Wrote shard manifest → %s", mani_path)
+
+    mani_path = (
+        out_dir
+        /
+        "manifest.json"
+    )
+
+    with open(
+        mani_path,
+        "w",
+    ) as fh:
+
+        json.dump(
+            mani,
+            fh,
+            indent=2,
+        )
+
+    LOG.info(
+        "Wrote shard manifest -> %s",
+        mani_path,
+    )
+
+    manager.shutdown()
 
 def main():
     parser = ap.ArgumentParser(description='Chunked and parallel processing of Kraken output')
