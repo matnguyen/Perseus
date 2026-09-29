@@ -32,6 +32,8 @@ conda create -n perseus ete3 pytorch
 pip install perseus-metagenomics
 ```
 
+### Perseus is also available on Galaxy
+
 ## Getting started
 
 ### Setup taxonomy database
@@ -100,7 +102,7 @@ This runs unit tests and end-to-end pipeline tests used during development.
 
 ## Citing Perseus
 
-Our preprint can be found here: [https://www.biorxiv.org/content/10.64898/2026.03.06.710148v1](https://www.biorxiv.org/content/10.64898/2026.03.06.710148v1)
+Our publication can be found here: [https://doi.org/10.1093/bioinformatics/btag687](https://doi.org/10.1093/bioinformatics/btag687)
 
 ## Data Generation Scripts
 
