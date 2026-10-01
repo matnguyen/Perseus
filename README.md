@@ -12,14 +12,36 @@ Perseus is built on a multi-headed 1D convolutional neural network that operates
 
 ---
 
+## Table of Contents
+
+- [Installation](#installation)
+  - [Conda installation](#conda-installation-recommended)
+  - [pip installation](#pip-installation)
+  - [Docker/Singularity installation](#dockersingularity-installation)
+  - [Galaxy](#galaxy)
+- [Getting started](#getting-started)
+  - [Setup taxonomy database](#setup-taxonomy-database)
+  - [Feature extraction](#feature-extraction)
+  - [Filtering](#filtering)
+- [Testing Data](#testing-data)
+- [Testing the Installation](#testing-the-installation)
+- [Citing Perseus](#citing-perseus)
+
 ## Installation
 
 ### Conda installation (recommended)
 
-Perseus is available through conda. We recommend creating a new environment:
+Perseus is available through Bioconda. We recommend creating a new environment:
 
 ```bash
-conda create -n perseus -c matnguyen -c conda-forge -c pytorch perseus
+conda create -n perseus -c conda-forge -c bioconda perseus
+conda activate perseus
+```
+
+Alternatively, if Bioconda is already configured in your Conda channels:
+
+```bash
+conda create -n perseus perseus
 conda activate perseus
 ```
 
@@ -32,7 +54,135 @@ conda create -n perseus ete3 pytorch
 pip install perseus-metagenomics
 ```
 
-### Perseus is also available on Galaxy
+### Docker/Singularity installation
+
+Perseus is available as a Docker container and can also be used with Singularity/Apptainer.
+
+#### Docker
+
+Pull the latest stable release:
+
+```bash
+docker pull matnguyen/perseus:latest
+```
+
+For reproducible analyses, we recommend using a specific version:
+
+```bash
+docker pull matnguyen/perseus:1.2.0
+```
+
+Check that Perseus is available:
+
+```bash
+docker run --rm matnguyen/perseus:1.2.0 --help
+```
+
+To run Perseus on local files, mount your working directory to `/data` inside the container:
+
+```bash
+docker run --rm \
+    -v "$(pwd):/data" \
+    matnguyen/perseus:1.2.0 \
+    setup /data/ete3_db
+```
+
+Feature extraction can then be run with:
+
+```bash
+docker run --rm \
+    -v "$(pwd):/data" \
+    matnguyen/perseus:1.2.0 \
+    extract \
+    /data/kraken_output.txt \
+    /data/perseus_shards \
+    /data/ete3_db
+```
+
+and filtering with:
+
+```bash
+docker run --rm \
+    -v "$(pwd):/data" \
+    matnguyen/perseus:1.2.0 \
+    filter \
+    /data/perseus_shards \
+    /data/kraken_output.txt \
+    /data/perseus_output.txt \
+    /data/ete3_db
+```
+
+#### Singularity/Apptainer
+
+Perseus can also be used on systems that provide Singularity or Apptainer, which is common on HPC systems.
+
+With Apptainer, pull the Docker image and convert it to a Singularity Image Format (`.sif`) file:
+
+```bash
+apptainer pull perseus_1.2.0.sif docker://matnguyen/perseus:1.2.0
+```
+
+For systems using the older `singularity` command:
+
+```bash
+singularity pull perseus_1.2.0.sif docker://matnguyen/perseus:1.2.0
+```
+
+Check the installation:
+
+```bash
+apptainer run perseus_1.2.0.sif --help
+```
+
+or:
+
+```bash
+singularity run perseus_1.2.0.sif --help
+```
+
+Run the taxonomy database setup:
+
+```bash
+apptainer run \
+    --bind "$(pwd):/data" \
+    perseus_1.2.0.sif \
+    setup /data/ete3_db
+```
+
+Run feature extraction:
+
+```bash
+apptainer run \
+    --bind "$(pwd):/data" \
+    perseus_1.2.0.sif \
+    extract \
+    /data/kraken_output.txt \
+    /data/perseus_shards \
+    /data/ete3_db
+```
+
+Run filtering:
+
+```bash
+apptainer run \
+    --bind "$(pwd):/data" \
+    perseus_1.2.0.sif \
+    filter \
+    /data/perseus_shards \
+    /data/kraken_output.txt \
+    /data/perseus_output.txt \
+    /data/ete3_db
+```
+
+If your system uses `singularity` instead of `apptainer`, replace `apptainer` with `singularity` in the commands above.
+
+For reproducible analyses, we recommend using a versioned image such as `1.2.0` rather than `latest`.
+
+### Galaxy
+
+Perseus is also available through Galaxy, allowing users to run the workflow through a graphical web interface without installing Perseus locally.
+
+Search for **Perseus** in your Galaxy instance's tool panel to use the available Perseus tools.
 
 ## Getting started
 
