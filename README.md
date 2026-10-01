@@ -269,7 +269,7 @@ Nguyen MH, Schatz MC. Perseus: refining Kraken2 taxonomic classifications of lon
 ```bibtex
 @article{nguyen_perseus,
   author  = {Nguyen, Matthew H. and Schatz, Michael C.},
-  title   = {Perseus: refining Kraken2 taxonomic classifications of long reads and contigs},
+  title   = {Perseus: Lineage-Aware Refinement of Kraken2 Taxonomic Classification for Long Read Metagenomes},
   journal = {Bioinformatics},
   doi     = {10.1093/bioinformatics/btag687}
 }
