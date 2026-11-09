@@ -39,6 +39,7 @@ dependencies = [
   "pyarrow",
   "torch",
   "ete3",
+  "six",
   "alive-progress",
   "legacy-cgi",
 ]
