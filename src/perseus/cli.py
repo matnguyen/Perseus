@@ -72,6 +72,8 @@ Examples:
                               help="Directory to store ETE3 taxonomy database")
     setup_parser.add_argument('--update', action='store_true',
                               help="Force update of the ETE3 taxonomy database even if it already exists")
+    setup_parser.add_argument('--kraken-db', type=str, default=None,
+                              help="Build the ETE3 taxonomy database from the names.dmp, nodes.dmp, and merged.dmp files in the specified Kraken2 database")
     
     # ==================== filter subcommand ====================
     filter_parser = subparsers.add_parser(
@@ -176,6 +178,9 @@ Examples:
         sys.argv = ['setup', args.db_dir]
         if args.update:
             sys.argv.append('--update')
+        if args.kraken_db is not None:
+            sys.argv.append('--kraken-db')
+            sys.argv.append(args.kraken_db)
         runpy.run_module('perseus.commands.setup', run_name='__main__')
         
     elif args.command == 'filter':
