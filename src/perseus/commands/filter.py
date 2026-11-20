@@ -8,7 +8,10 @@ import numpy as np
 from alive_progress import alive_bar
 from pathlib import Path
 
-from perseus.utils.tax_utils import get_ncbi
+from perseus.utils.tax_utils import (
+    get_ncbi,
+    canonicalize_rank
+)
 from perseus.utils.constants import CANONICAL_RANKS
 from perseus.data.dataset import build_loader
 from perseus.utils.filter_utils import select_one_row_per_seq
@@ -428,7 +431,7 @@ def run_filter(args):
 
     # Direct predicted-rank cache.
     rank_cache = {
-        tx: all_rank_map.get(tx, "no_rank")
+        tx: canonicalize_rank(all_rank_map.get(tx)) or "no_rank"
         for tx in unique_perseus
     }
 
@@ -459,10 +462,7 @@ def run_filter(args):
             # deepest -> root
             for anc in reversed(lineage):
 
-                rank = all_rank_map.get(anc)
-
-                if rank == "kingdom":
-                    rank = "superkingdom"
+                rank = canonicalize_rank(all_rank_map.get(anc))
 
                 if (
                     rank in canonical_rank_set
@@ -590,7 +590,7 @@ def run_filter(args):
 
     ancestor_lookup_by_rank = {
         rank: {
-            tx: rank_map.get(rank, tx)
+            tx: rank_map.get(rank)
             for tx, rank_map in ancestor_at_rank_cache.items()
         }
         for rank in CANONICAL_RANKS
@@ -629,7 +629,7 @@ def run_filter(args):
         # if no rank-specific ancestor exists, retain base taxid.
         final_taxids.loc[mask] = (
             mapped
-            .fillna(base_taxids.loc[mask])
+            .fillna(0)
             .astype("Int64")
         )
 

@@ -39,17 +39,25 @@ def cleanup_ete3_tmpdir():
 
 
 def _init_ncbi_private_db(db_path: str):
-    """
-    Create a private copy of the ETE3 SQLite DB for this worker to avoid
-    read-lock contention on NFS and reduce D-state stalls
-    """
+    """Load a private ETE3 SQLite copy for this worker."""
+    source = os.path.join(db_path, "taxa.sqlite")
+
+    if not os.path.isfile(source):
+        raise FileNotFoundError(source)
+
     tmpdir = tempfile.mkdtemp(prefix="perseus_ete3db_")
-    dst_db = os.path.join(tmpdir, "taxa.sqlite")
-    sqlite_path = os.path.join(db_path, "taxa.sqlite")
-    shutil.copy2(sqlite_path, dst_db)
+    destination = os.path.join(tmpdir, "taxa.sqlite")
+
+    try:
+        shutil.copy2(source, destination)
+        taxonomy = get_ncbi(tmpdir)
+    except Exception:
+        shutil.rmtree(tmpdir, ignore_errors=True)
+        raise
 
     globals_mod._ete3_tmpdir = tmpdir
-    globals_mod.NCBI = get_ncbi(db_path)
+    globals_mod.NCBI = taxonomy
+
 
 def init_feature_worker(
     tax_context,

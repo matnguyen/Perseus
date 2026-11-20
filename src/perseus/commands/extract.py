@@ -260,6 +260,25 @@ def read_kraken_file(
 
                     bar()
 
+    # ========================================================
+    # Validate taxonomy compatibility
+    # ========================================================
+
+    missing_taxids = [
+        tid
+        for tid in all_taxids
+        if tid > 0 and not lineage_map.get(tid)
+    ]
+
+    if missing_taxids:
+        raise ValueError(
+            f"{len(missing_taxids)} Kraken2 tax IDs are missing "
+            "from the supplied ETE3 taxonomy database. "
+            f"Examples: {missing_taxids[:10]}. "
+            "Check that Perseus uses the taxonomy generated "
+            "from the same Kraken2 database as the input."
+        )
+
     LOG.info(
         "Taxonomy precomputation complete"
     )

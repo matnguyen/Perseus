@@ -88,6 +88,7 @@ def setup_ete3(
 
     LOG.info("ETE3 taxonomic database setup complete: %s", sqlite_path)
 
+
 def main() -> None:
     logging.basicConfig(
         level=logging.INFO,
@@ -99,18 +100,30 @@ def main() -> None:
         description="Setup ETE3 taxonomic database for Perseus"
     )
     parser.add_argument(
-        'db_dir',
+        "db_dir",
         type=str,
         help="Directory where the ETE3 taxonomy database will be stored",
     )
     parser.add_argument(
-        '--update',
-        action='store_true',
-        help="Force update of the ETE3 taxonomy database even if it already exists",
+        "--update",
+        action="store_true",
+        help="Force rebuilding the ETE3 taxonomy database",
+    )
+    parser.add_argument(
+        "--kraken-db",
+        type=str,
+        default=None,
+        help="Kraken2 database with taxonomy/names.dmp and nodes.dmp",
     )
 
     args = parser.parse_args()
-    setup_ete3(args.db_dir, args.update)
+
+    setup_ete3(
+        path=args.db_dir,
+        update=args.update,
+        kraken_db=args.kraken_db,
+    )
+
 
 if __name__ == "__main__":
     main()
